@@ -64,3 +64,53 @@ export const reporteMermas = (desde, hasta) =>
   client.get("/reportes/mermas", { params: { desde, hasta } }).then((r) => r.data);
 export const reporteRotacion = (dias) => client.get("/reportes/rotacion", { params: { dias } }).then((r) => r.data);
 export const reporteSugerenciasCompra = () => client.get("/reportes/sugerencias-compra").then((r) => r.data);
+
+// ---------- Clientes ----------
+export const listarClientes = () =>
+  client.get("/clientes").then((r) => r.data);
+
+export const crearCliente = (data) =>
+  client.post("/clientes", data).then((r) => r.data);
+
+export const eliminarCliente = (id) =>
+  client.delete(`/clientes/${id}`).then((r) => r.data);
+
+
+// ---------- Productos venta ----------
+export const listarProductosVenta = () =>
+  client.get("/productos-venta").then((r) => r.data);
+
+export const crearProductoVenta = (data) =>
+  client.post("/productos-venta", data).then((r) => r.data);
+
+export const editarProductoVenta = (grupoId, data) =>
+  client.put(`/productos-venta/${grupoId}`, data).then((r) => r.data);
+
+
+// ---------- Ventas ----------
+export const listarVentas = () =>
+  client.get("/ventas").then((r) => r.data);
+
+export const listarVentasPendientes = () =>
+  client.get("/ventas/pendientes").then((r) => r.data);
+
+export const obtenerVenta = (id) =>
+  client.get(`/ventas/${id}`).then((r) => r.data);
+
+export const crearVenta = (data) =>
+  client.post("/ventas", data).then((r) => r.data);
+
+export const registrarPago = (id, pagos) =>
+  client.post(`/ventas/${id}/pagos`, { pagos }).then((r) => r.data);
+
+export const registrarPagoVenta = (id, data) =>
+  client.post(`/ventas/${id}/pagos`, data).then((r) => r.data);
+
+export const anularVenta = (id) =>
+  client.post(`/ventas/${id}/anular`).then((r) => r.data);
+
+
+
+
+export const listarRecetasSinPrecio = () =>
+  client.get("/productos-venta/sin-precio").then((r) => r.data);

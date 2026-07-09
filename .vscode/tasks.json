@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Backend",
+      "type": "shell",
+      "command": "cd backend; npm start",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Frontend",
+      "type": "shell",
+      "command": "cd frontend; npm run dev -- --force",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Iniciar ERP",
+      "dependsOn": [
+        "Backend",
+        "Frontend"
+      ],
+      "dependsOrder": "parallel"
+    }
+  ]
+}

@@ -48,14 +48,20 @@ const DRAWER_WIDTH_COLLAPSED = 76;
 const MENU = [
   { section: "General", items: [{ label: "Dashboard", icon: <DashboardIcon />, to: "/" }] },
   {
-    section: "Inventario",
-    items: [
-      { label: "Ingredientes", icon: <Inventory2Icon />, to: "/ingredientes" },
-      { label: "Proveedores", icon: <LocalShippingIcon />, to: "/proveedores" },
-      { label: "Compras", icon: <ShoppingCartIcon />, to: "/compras" },
-      { label: "Ajustes de stock", icon: <TuneIcon />, to: "/ajustes" },
-    ],
-  },
+  section: "Inventario",
+  items: [
+    { label: "Ingredientes", icon: <Inventory2Icon />, to: "/ingredientes" },
+    { label: "Proveedores", icon: <LocalShippingIcon />, to: "/proveedores" },
+    { label: "Compras", icon: <ShoppingCartIcon />, to: "/compras" },
+    { label: "Ajustes de stock", icon: <TuneIcon />, to: "/ajustes" },
+  ],
+},
+{
+  section: "Ventas",
+  items: [
+    { label: "Ventas", icon: <ShoppingCartIcon />, to: "/ventas" },
+  ],
+},
   {
     section: "Producción",
     items: [
