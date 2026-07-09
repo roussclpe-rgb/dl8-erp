@@ -109,8 +109,9 @@ export const registrarPagoVenta = (id, data) =>
 export const anularVenta = (id) =>
   client.post(`/ventas/${id}/anular`).then((r) => r.data);
 
-
-
-
 export const listarRecetasSinPrecio = () =>
   client.get("/productos-venta/sin-precio").then((r) => r.data);
+
+export const editarProductoVenta = (grupoId, data) =>
+  client.put(`/productos-venta/${grupoId}`, data).then((r) => r.data);
+
