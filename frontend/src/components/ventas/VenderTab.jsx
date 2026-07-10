@@ -25,6 +25,7 @@ import BlockIcon from "@mui/icons-material/BlockOutlined";
 import DataTable from "../DataTable";
 import ConfirmDialog from "../ConfirmDialog";
 import { useAuth } from "../../context/AuthContext";
+import { useCajaActiva } from "../../hooks/useCajaActiva";
 import { useNotify } from "../../hooks/useNotify";
 import {
   listarClientes,
@@ -65,6 +66,7 @@ const defaultValues = {
 export default function VenderTab() {
   const { hasRole } = useAuth();
   const notify = useNotify();
+  const { turno } = useCajaActiva();
 
   const [clientes, setClientes] = useState([]);
   const [productos, setProductos] = useState([]);
@@ -132,7 +134,10 @@ export default function VenderTab() {
   const onSubmit = async (data) => {
     setSaving(true);
     try {
-      await crearVenta(data);
+      await crearVenta({
+      ...data,
+      turno_caja_id: turno?.id,
+   });
       notify.success("Venta registrada");
       reset(defaultValues);
       cargarBase();

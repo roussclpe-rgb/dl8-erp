@@ -2,15 +2,16 @@ import { useEffect, useState, useCallback } from "react";
 import { useForm, useFieldArray, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Box, Grid, TextField, Button, Stack, IconButton, Tooltip, MenuItem, Chip } from "@mui/material";
+import { Box, Grid, TextField, Button, Stack, IconButton, Tooltip, MenuItem, Chip, Alert } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import PaymentIcon from "@mui/icons-material/PaymentsOutlined";
-
+import PointOfSaleIcon from "@mui/icons-material/PointOfSaleOutlined";
 import DataTable from "../DataTable";
 import FormDialog from "../FormDialog";
 import { useAuth } from "../../context/AuthContext";
 import { useNotify } from "../../hooks/useNotify";
+import { useCajaActiva } from "../../hooks/useCajaActiva";
 import { listarVentasPendientes, registrarPago } from "../../api/endpoints";
 
 const METODOS_PAGO = ["Efectivo", "Yape", "Transferencia", "Tarjeta"];
@@ -29,6 +30,7 @@ const schema = z.object({
 export default function PorCobrarTab() {
   const { hasRole } = useAuth();
   const notify = useNotify();
+  const { turno } = useCajaActiva();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cobrando, setCobrando] = useState(null); // venta seleccionada para cobrar
@@ -63,7 +65,7 @@ export default function PorCobrarTab() {
   const onSubmit = async (data) => {
     setSaving(true);
     try {
-      await registrarPago(cobrando.id, data.pagos);
+      await registrarPago(cobrando.id, data.pagos, turno?.id);
       notify.success("Cobro registrado");
       setCobrando(null);
       cargar();
@@ -104,6 +106,20 @@ export default function PorCobrarTab() {
 
       <FormDialog open={!!cobrando} onClose={() => setCobrando(null)} title={`Cobrar venta — folio ${cobrando?.folio}`}>
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
+          {turno ? (
+                      <Chip
+                        size="small"
+                        icon={<PointOfSaleIcon />}
+                        color="success"
+                        variant="outlined"
+                        label={`Se registrará en: ${turno.caja_nombre || "caja abierta"}`}
+                        sx={{ mb: 2 }}
+                      />
+                    ) : (
+                      <Alert severity="warning" sx={{ mb: 2 }}>
+                        No tienes una caja abierta. El cobro se registrará igual, pero no aparecerá en ningún arqueo.
+                      </Alert>
+                    )}
           <Stack spacing={2}>
             {pagosArray.fields.map((field, index) => (
               <Grid container spacing={2} key={field.id} alignItems="center">

@@ -6,7 +6,7 @@ import DataTable from "../components/DataTable";
 import StatusChip from "../components/StatusChip";
 import { useNotify } from "../hooks/useNotify";
 import { formatoMoneda, formatoNumero, formatoFecha } from "../utils/format";
-import { reporteValorizacion, reporteMermas, reporteRotacion, reporteSugerenciasCompra } from "../api/endpoints";
+import { reporteValorizacion, reporteMermas, reporteRotacion, reporteSugerenciasCompra, reporteCaja } from "../api/endpoints";
 
 function TabPanel({ value, index, children }) {
   return value === index ? <Box sx={{ mt: 2.5 }}>{children}</Box> : null;
@@ -34,6 +34,12 @@ export default function ReportesPage() {
   // Sugerencias
   const [sugerencias, setSugerencias] = useState([]);
   const [loadingSug, setLoadingSug] = useState(true);
+
+   // Caja (arqueos)
+  const [desdeCaja, setDesdeCaja] = useState("");
+  const [hastaCaja, setHastaCaja] = useState("");
+  const [caja, setCaja] = useState({ turnos: [], totalDiferencias: 0, totalFaltantes: 0, totalSobrantes: 0 });
+  const [loadingCaja, setLoadingCaja] = useState(true);
 
   const cargarValorizacion = useCallback(async () => {
     setLoadingVal(true);
@@ -85,23 +91,39 @@ export default function ReportesPage() {
     }
   }, [notify]);
 
+  const cargarCaja = useCallback(
+    async (d, h) => {
+      setLoadingCaja(true);
+      try {
+        setCaja(await reporteCaja(d || undefined, h || undefined));
+      } catch (e) {
+        notify.error(e);
+      } finally {
+        setLoadingCaja(false);
+      }
+    },
+    [notify]
+  );
+
   useEffect(() => {
     cargarValorizacion();
     cargarMermas("", "");
     cargarRotacion(30);
     cargarSugerencias();
+    cargarCaja("", "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <Box>
-      <PageHeader title="Reportes" subtitle="Valorización, mermas, rotación y sugerencias de compra." />
+      <PageHeader title="Reportes" subtitle="Valorización, mermas, rotación, caja y sugerencias de compra." />
 
       <Paper variant="outlined" sx={{ borderRadius: 3 }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ px: 2, borderBottom: "1px solid", borderColor: "divider" }}>
           <Tab label="Valorización de inventario" />
           <Tab label="Mermas" />
           <Tab label="Rotación" />
+          <Tab label="Caja" />
           <Tab label="Sugerencias de compra" />
         </Tabs>
 
@@ -192,6 +214,79 @@ export default function ReportesPage() {
           </TabPanel>
 
           <TabPanel value={tab} index={3}>
+            <Grid container spacing={2} alignItems="center" sx={{ mb: 2 }}>
+              <Grid item xs={6} sm={3}>
+                <TextField label="Desde" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={desdeCaja} onChange={(e) => setDesdeCaja(e.target.value)} />
+              </Grid>
+              <Grid item xs={6} sm={3}>
+                <TextField label="Hasta" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={hastaCaja} onChange={(e) => setHastaCaja(e.target.value)} />
+              </Grid>
+              <Grid item xs={12} sm={3}>
+                <Button variant="outlined" onClick={() => cargarCaja(desdeCaja, hastaCaja)}>
+                  Filtrar
+                </Button>
+              </Grid>
+            </Grid>
+            <Grid container spacing={2} sx={{ mb: 2 }}>
+              <Grid item xs={12} sm={4}>
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Diferencia neta
+                  </Typography>
+                  <Typography variant="h6" color={Math.abs(caja.totalDiferencias) < 0.01 ? "success.main" : "error.main"}>
+                    {formatoMoneda(caja.totalDiferencias)}
+                  </Typography>
+                </Paper>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Total faltantes
+                  </Typography>
+                  <Typography variant="h6" color="error.main">
+                    {formatoMoneda(caja.totalFaltantes)}
+                  </Typography>
+                </Paper>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Total sobrantes
+                  </Typography>
+                  <Typography variant="h6" color="success.main">
+                    {formatoMoneda(caja.totalSobrantes)}
+                  </Typography>
+                </Paper>
+              </Grid>
+            </Grid>
+            <DataTable
+              loading={loadingCaja}
+              searchPlaceholder="Buscar por caja o usuario…"
+              defaultOrderBy="fecha_apertura"
+              defaultOrder="desc"
+              columns={[
+                { field: "caja_nombre", headerName: "Caja", minWidth: 140 },
+                { field: "fecha_apertura", headerName: "Apertura", renderCell: (r) => formatoFecha(r.fecha_apertura) },
+                { field: "fecha_cierre", headerName: "Cierre", renderCell: (r) => (r.fecha_cierre ? formatoFecha(r.fecha_cierre) : "—") },
+                { field: "monto_cierre_esperado", headerName: "Esperado", align: "right", renderCell: (r) => formatoMoneda(r.monto_cierre_esperado) },
+                { field: "monto_cierre_contado", headerName: "Contado", align: "right", renderCell: (r) => formatoMoneda(r.monto_cierre_contado) },
+                {
+                  field: "diferencia",
+                  headerName: "Diferencia",
+                  align: "right",
+                  renderCell: (r) => (
+                    <Typography variant="body2" color={Math.abs(r.diferencia) < 0.01 ? "success.main" : "error.main"} sx={{ fontWeight: 600 }}>
+                      {formatoMoneda(r.diferencia)}
+                    </Typography>
+                  ),
+                },
+                { field: "usuario_cierre_nombre", headerName: "Cerrado por" },
+              ]}
+              rows={caja.turnos}
+            />
+          </TabPanel>
+
+          <TabPanel value={tab} index={4}>
             <DataTable
               loading={loadingSug}
               searchPlaceholder="Buscar ingrediente…"

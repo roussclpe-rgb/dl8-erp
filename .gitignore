@@ -4,3 +4,8 @@ data.sqlite-shm
 data.sqlite-wal
 .env
 *.log
+
+
+# Archivos temporales de pruebas
+backend/data_backup_pre_caja.sqlite
+backend/verificar-tablas.js

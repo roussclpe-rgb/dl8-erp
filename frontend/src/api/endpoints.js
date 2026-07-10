@@ -64,6 +64,7 @@ export const reporteMermas = (desde, hasta) =>
   client.get("/reportes/mermas", { params: { desde, hasta } }).then((r) => r.data);
 export const reporteRotacion = (dias) => client.get("/reportes/rotacion", { params: { dias } }).then((r) => r.data);
 export const reporteSugerenciasCompra = () => client.get("/reportes/sugerencias-compra").then((r) => r.data);
+export const reporteCaja = (desde, hasta) => client.get("/reportes/caja", { params: { desde, hasta } }).then((r) => r.data);
 
 // ---------- Clientes ----------
 export const listarClientes = () =>
@@ -100,8 +101,13 @@ export const obtenerVenta = (id) =>
 export const crearVenta = (data) =>
   client.post("/ventas", data).then((r) => r.data);
 
-export const registrarPago = (id, pagos) =>
-  client.post(`/ventas/${id}/pagos`, { pagos }).then((r) => r.data);
+export const registrarPago = (id, pagos, turnoCajaId) =>
+  client
+    .post(`/ventas/${id}/pagos`, {
+      pagos,
+      turno_caja_id: turnoCajaId || undefined,
+    })
+    .then((r) => r.data);
 
 export const registrarPagoVenta = (id, data) =>
   client.post(`/ventas/${id}/pagos`, data).then((r) => r.data);
@@ -109,8 +115,39 @@ export const registrarPagoVenta = (id, data) =>
 export const anularVenta = (id) =>
   client.post(`/ventas/${id}/anular`).then((r) => r.data);
 
-
-
-
 export const listarRecetasSinPrecio = () =>
   client.get("/productos-venta/sin-precio").then((r) => r.data);
+
+
+// ---------- Caja ----------
+export const listarCajas = () =>
+  client.get("/caja").then((r) => r.data);
+
+export const crearCaja = (data) =>
+  client.post("/caja", data).then((r) => r.data);
+
+export const eliminarCaja = (id) =>
+  client.delete(`/caja/${id}`).then((r) => r.data);
+
+export const turnoActualCaja = (cajaId) =>
+  client.get(`/caja/${cajaId}/turno-actual`).then((r) => r.data);
+
+export const abrirCaja = (cajaId, data) =>
+  client.post(`/caja/${cajaId}/abrir`, data).then((r) => r.data);
+
+export const cerrarTurnoCaja = (turnoId, data) =>
+  client.post(`/caja/turnos/${turnoId}/cerrar`, data).then((r) => r.data);
+
+export const listarTurnosCaja = (params) =>
+  client.get("/caja/turnos", { params }).then((r) => r.data);
+
+export const obtenerTurnoCaja = (turnoId) =>
+  client.get(`/caja/turnos/${turnoId}`).then((r) => r.data);
+
+export const registrarMovimientoCaja = (data) =>
+  client.post("/caja/movimientos", data).then((r) => r.data);
+
+export const listarMovimientosCaja = (turnoId) =>
+  client.get("/caja/movimientos", {
+    params: { turno_id: turnoId },
+  }).then((r) => r.data);

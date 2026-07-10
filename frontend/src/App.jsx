@@ -17,6 +17,7 @@ import PeriodosPage from "./pages/PeriodosPage";
 import ConfigCostosPage from "./pages/ConfigCostosPage";
 import UsuariosPage from "./pages/UsuariosPage";
 import VentasPage from "./pages/VentasPage";
+import CajaPage from "./pages/CajaPage";
 
 export default function App() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="proveedores" element={<ProveedoresPage />} />
         <Route path="compras" element={<ComprasPage />} />
         <Route path="ventas" element={<VentasPage />} />
+        <Route path="caja" element={<CajaPage />} />
         <Route path="ajustes" element={<AjustesPage />} />
         <Route path="recetas" element={<RecetasPage />} />
         <Route path="producciones" element={<ProduccionesPage />} />

@@ -4,6 +4,7 @@ const { db, obtenerOCrearPeriodo } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { exigirPeriodoAbierto } = require("../services/periodos");
 const { calcularVenta } = require("../services/ventas");
+const caja = require("../services/caja");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -20,6 +21,19 @@ function saldoVenta(ventaId) {
   return venta.total - pagado;
 }
 
+// Si la venta/cobro trae un turno_caja_id, exige que ese turno esté abierto
+// ANTES de tocar la base de datos (falla rápido, con mensaje claro, en vez
+// de abortar a mitad de una transacción de venta ya iniciada).
+function validarTurnoSiAplica(turnoCajaId) {
+  if (!turnoCajaId) return null;
+  const turno = caja.turnoAbiertoPorId(turnoCajaId);
+  if (!turno) {
+    const err = new Error("El turno de caja indicado no está abierto. Abre la caja antes de registrar el cobro.");
+    err.status = 409;
+    throw err;
+  }
+  return turno;
+}
 router.get("/", (req, res) => {
   const ventas = db.prepare(`
     SELECT v.*, c.nombre AS cliente_nombre
@@ -53,7 +67,7 @@ router.get("/:id", (req, res) => {
 
 // body: { cliente_id, fecha, items: [{ receta_grupo_id, cantidad }], pagos?: [{ monto, metodoPago }] }
 router.post("/", requireRole("admin", "operador", "vendedor"), (req, res) => {
-  const { cliente_id, fecha, items, pagos = [] } = req.body;
+  const { cliente_id, fecha, items, pagos = [], turno_caja_id } = req.body;
 
   if (!cliente_id || !fecha || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "cliente_id, fecha e items son obligatorios" });
@@ -65,6 +79,7 @@ router.post("/", requireRole("admin", "operador", "vendedor"), (req, res) => {
   let periodo;
   try {
     periodo = exigirPeriodoAbierto(fecha);
+    validarTurnoSiAplica(turno_caja_id);
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
   }
@@ -95,7 +110,22 @@ router.post("/", requireRole("admin", "operador", "vendedor"), (req, res) => {
     `);
     pagos
       .filter((p) => p.monto > 0)
-      .forEach((p) => insPago.run(ventaId, p.monto, p.metodoPago, fecha, req.usuario.id));
+      .forEach((p) => {
+        insPago.run(ventaId, p.monto, p.metodoPago, fecha, req.usuario.id);
+        if (turno_caja_id) {
+          caja.registrarMovimiento({
+            turnoId: turno_caja_id,
+            tipo: "venta",
+            metodoPago: p.metodoPago,
+            monto: p.monto,
+            motivo: `Venta folio ${folio} — ${cliente.nombre}`,
+            referenciaTipo: "venta",
+            referenciaId: ventaId,
+            usuarioId: req.usuario.id,
+            fecha,
+          });
+        }
+      });
 
     db.prepare(`
       INSERT INTO log_auditoria (usuario_id, entidad, entidad_id, accion, datos_antes, datos_despues)
@@ -141,20 +171,43 @@ router.post("/:id/anular", requireRole("admin"), (req, res) => {
 });
 
 // Cobrar saldo pendiente de una venta ya existente.
-// body: { pagos: [{ monto, metodoPago }] }
+// body: { pagos: [{ monto, metodoPago }], turno_caja_id? }
 router.post("/:id/pagos", requireRole("admin", "operador", "vendedor"), (req, res) => {
   const venta = db.prepare("SELECT * FROM ventas WHERE id = ? AND anulado = 0").get(req.params.id);
   if (!venta) return res.status(404).json({ error: "Venta no encontrada" });
 
-  const { pagos = [] } = req.body;
+  const { pagos = [], turno_caja_id } = req.body;
   const hoy = new Date().toISOString().slice(0, 10);
+
+  try {
+    validarTurnoSiAplica(turno_caja_id);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message });
+  }
 
   const registrar = db.transaction(() => {
     const insPago = db.prepare(`
       INSERT INTO pagos (venta_id, monto, metodo_pago, fecha, usuario_id) VALUES (?, ?, ?, ?, ?)
     `);
-    pagos.filter((p) => p.monto > 0).forEach((p) => insPago.run(venta.id, p.monto, p.metodoPago, hoy, req.usuario.id));
-  });
+    pagos
+          .filter((p) => p.monto > 0)
+          .forEach((p) => {
+            insPago.run(venta.id, p.monto, p.metodoPago, hoy, req.usuario.id);
+            if (turno_caja_id) {
+              caja.registrarMovimiento({
+                turnoId: turno_caja_id,
+                tipo: "cobro",
+                metodoPago: p.metodoPago,
+                monto: p.monto,
+                motivo: `Cobro venta folio ${venta.folio}`,
+                referenciaTipo: "venta",
+                referenciaId: venta.id,
+                usuarioId: req.usuario.id,
+                fecha: hoy,
+              });
+            }
+          });
+      });
   registrar();
 
   res.json({ saldo: saldoVenta(venta.id) });

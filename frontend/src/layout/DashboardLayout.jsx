@@ -25,6 +25,7 @@ import DashboardIcon from "@mui/icons-material/DashboardOutlined";
 import Inventory2Icon from "@mui/icons-material/Inventory2Outlined";
 import LocalShippingIcon from "@mui/icons-material/LocalShippingOutlined";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCartOutlined";
+import PointOfSaleIcon from "@mui/icons-material/PointOfSaleOutlined";
 import MenuBookIcon from "@mui/icons-material/MenuBookOutlined";
 import PrecisionManufacturingIcon from "@mui/icons-material/PrecisionManufacturingOutlined";
 import TuneIcon from "@mui/icons-material/TuneOutlined";
@@ -60,6 +61,7 @@ const MENU = [
   section: "Ventas",
   items: [
     { label: "Ventas", icon: <ShoppingCartIcon />, to: "/ventas" },
+    { label: "Caja", icon: <PointOfSaleIcon />, to: "/caja" },
   ],
 },
   {

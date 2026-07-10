@@ -27,7 +27,7 @@ app.use("/api/reportes", require("./routes/reportes"));
 app.use("/api/clientes", require("./routes/clientes.routes"));
 app.use("/api/productos-venta", require("./routes/productosVenta.routes"));
 app.use("/api/ventas", require("./routes/ventas.routes.v2"));
-
+app.use("/api/caja", require("./routes/caja"));
 app.get("/api/salud", (req, res) => res.json({ ok: true }));
 
 // 404 explícito para rutas no definidas

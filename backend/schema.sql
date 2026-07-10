@@ -255,3 +255,56 @@ CREATE TABLE IF NOT EXISTS pagos (
   usuario_id INTEGER NOT NULL,
   creado_en TEXT NOT NULL DEFAULT (datetime('now'))
 );
+-- ============================================================
+-- MÓDULO DE CAJA
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS cajas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,
+  activo INTEGER NOT NULL DEFAULT 1,
+  creado_en TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS turnos_caja (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  caja_id INTEGER NOT NULL REFERENCES cajas(id),
+  estado TEXT NOT NULL DEFAULT 'abierto',
+  monto_apertura REAL NOT NULL CHECK (monto_apertura >= 0),
+  monto_cierre_esperado REAL,
+  monto_cierre_contado REAL,
+  diferencia REAL,
+  notas_apertura TEXT,
+  notas_cierre TEXT,
+  usuario_apertura_id INTEGER NOT NULL REFERENCES usuarios(id),
+  usuario_cierre_id INTEGER REFERENCES usuarios(id),
+  fecha_apertura TEXT NOT NULL DEFAULT (datetime('now')),
+  fecha_cierre TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_turnos_caja_caja ON turnos_caja(caja_id);
+CREATE INDEX IF NOT EXISTS idx_turnos_caja_fecha ON turnos_caja(fecha_apertura);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_turno_abierto_unico
+ON turnos_caja(caja_id)
+WHERE estado = 'abierto';
+
+CREATE TABLE IF NOT EXISTS movimientos_caja (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  turno_id INTEGER NOT NULL REFERENCES turnos_caja(id),
+  tipo TEXT NOT NULL,
+  metodo_pago TEXT,
+  monto REAL NOT NULL,
+  motivo TEXT,
+  referencia_tipo TEXT,
+  referencia_id INTEGER,
+  usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+  fecha TEXT NOT NULL DEFAULT (datetime('now')),
+  creado_en TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_mov_caja_turno ON movimientos_caja(turno_id);
+CREATE INDEX IF NOT EXISTS idx_mov_caja_fecha ON movimientos_caja(fecha);
+CREATE INDEX IF NOT EXISTS idx_mov_caja_referencia
+ON movimientos_caja(referencia_tipo, referencia_id);
+
