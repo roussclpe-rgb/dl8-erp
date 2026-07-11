@@ -11,6 +11,7 @@ const schema = fs.readFileSync(path.join(__dirname, "..", "schema.sql"), "utf8")
 db.exec(schema);
 
 try {
+  require("./migrations/pagos-cxc-compat").prepararCompatibilidadPagosCxC(db);
   const esquemaFinanzas = fs.readFileSync(path.join(__dirname, "..", "finanzas-schema.sql"), "utf8");
   db.exec(esquemaFinanzas);
   require("./migrations/fin-eventos-caja").migrarTiposEventosCaja(db);
@@ -37,15 +38,6 @@ if (!columnaExiste("cajas", "entidad_id")) {
 }
 if (!columnaExiste("cajas", "cuenta_financiera_id")) {
   db.exec("ALTER TABLE cajas ADD COLUMN cuenta_financiera_id INTEGER REFERENCES fin_cuentas_financieras(id)");
-}
-if (!columnaExiste("pagos", "evento_financiero_id")) {
-  db.exec("ALTER TABLE pagos ADD COLUMN evento_financiero_id INTEGER REFERENCES fin_eventos_financieros(id)");
-}
-if (!columnaExiste("pagos", "cobro_id")) {
-  db.exec("ALTER TABLE pagos ADD COLUMN cobro_id INTEGER REFERENCES fin_cobros(id)");
-}
-if (!columnaExiste("pagos", "aplicacion_cxc_id")) {
-  db.exec("ALTER TABLE pagos ADD COLUMN aplicacion_cxc_id INTEGER REFERENCES fin_aplicaciones_cxc(id)");
 }
 if (!columnaExiste("fin_aplicaciones_cxc", "cobro_id")) {
   db.exec("ALTER TABLE fin_aplicaciones_cxc ADD COLUMN cobro_id INTEGER REFERENCES fin_cobros(id)");
