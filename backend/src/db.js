@@ -26,6 +26,9 @@ function columnaExiste(tabla, columna) {
 if (!columnaExiste("ventas", "descuento_tipo")) {
   db.exec("ALTER TABLE ventas ADD COLUMN descuento_tipo TEXT");
 }
+if (!columnaExiste("lotes_compra", "entidad_id")) {
+  db.exec("ALTER TABLE lotes_compra ADD COLUMN entidad_id INTEGER REFERENCES fin_entidades_economicas(id)");
+}
 if (!columnaExiste("ventas", "descuento_valor")) {
   db.exec("ALTER TABLE ventas ADD COLUMN descuento_valor REAL DEFAULT 0");
 }
@@ -73,6 +76,32 @@ db.exec(`
     UNIQUE(usuario_id, clave)
   )
 `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS compras_claves_idempotencia (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    clave TEXT NOT NULL,
+    hash_payload TEXT NOT NULL,
+    respuesta_json TEXT NOT NULL,
+    creado_en TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(usuario_id, clave)
+  )
+`);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS pagos_cxp_claves_idempotencia (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    clave TEXT NOT NULL,
+    hash_payload TEXT NOT NULL,
+    respuesta_json TEXT NOT NULL,
+    creado_en TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(usuario_id, clave)
+  )
+`);
+db.exec(`CREATE TABLE IF NOT EXISTS correcciones_cxp_claves_idempotencia (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_id INTEGER NOT NULL REFERENCES usuarios(id), clave TEXT NOT NULL,
+  hash_payload TEXT NOT NULL, respuesta_json TEXT NOT NULL, creado_en TEXT NOT NULL DEFAULT(datetime('now')), UNIQUE(usuario_id,clave)
+)`);
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_cajas_cuenta_financiera_activa ON cajas(cuenta_financiera_id) WHERE activo = 1 AND cuenta_financiera_id IS NOT NULL");
 db.exec(`
   CREATE TRIGGER IF NOT EXISTS trg_cajas_cuenta_financiera_insert
