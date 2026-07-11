@@ -1,132 +1,40 @@
-const { db } = require("../db");
+const { db } = require('../db');
+const cat = require('./finanzas/catalogos');
+const motor = require('./finanzas/motor');
 
-// Métodos de pago soportados: mismo dominio que pagos.metodo_pago (ventas.js),
-// para no introducir un segundo catálogo de métodos que se pueda desincronizar.
-const METODOS_PAGO = ["Efectivo", "Yape", "Transferencia", "Tarjeta"];
+const fallo = (message, status = 400) => Object.assign(new Error(message), { status });
+const aMinor = (monto) => { const n = Number(monto); if (!Number.isFinite(n) || n < 0) throw fallo('El monto es inválido'); return Math.round(n * 100); };
+const aMonto = (minor) => Number(minor) / 100;
+const fecha = (valor) => String(valor || new Date().toISOString().slice(0, 10)).slice(0, 10);
 
-function turnoAbierto(cajaId) {
-  return db.prepare("SELECT * FROM turnos_caja WHERE caja_id = ? AND estado = 'abierto'").get(cajaId);
+function turnoAbierto(cajaId) { return db.prepare("SELECT * FROM turnos_caja WHERE caja_id=? AND estado='abierto'").get(cajaId); }
+function turnoAbiertoPorId(turnoId) { return db.prepare("SELECT * FROM turnos_caja WHERE id=? AND estado='abierto'").get(turnoId); }
+function cajaConfigurada(cajaId) {
+  const caja = db.prepare(`SELECT c.*, cf.cuenta_contable_id, cf.tipo cuenta_tipo, cf.estado cuenta_estado
+    FROM cajas c LEFT JOIN fin_cuentas_financieras cf ON cf.id=c.cuenta_financiera_id WHERE c.id=? AND c.activo=1`).get(cajaId);
+  if (!caja) throw fallo('Caja no existe o está inactiva', 404);
+  if (!caja.entidad_id || !caja.cuenta_financiera_id) throw fallo('La caja no tiene configuración financiera. Asocia una entidad y una cuenta financiera tipo caja.', 409);
+  if (caja.cuenta_tipo !== 'caja' || caja.cuenta_estado !== 'activa' || !db.prepare('SELECT 1 FROM fin_cuentas_financieras WHERE id=? AND entidad_id=?').get(caja.cuenta_financiera_id, caja.entidad_id)) throw fallo('La configuración financiera de la caja no es válida', 409);
+  return caja;
 }
+const idSeguro = (valor) => { const id=Number(valor); return Number.isSafeInteger(id)&&id>0?id:null; };
+function configurarCaja({cajaId,entidadId,cuentaFinancieraId,usuarioId}) { const cajaIdSeguro=idSeguro(cajaId),entidad=idSeguro(entidadId),cuenta=idSeguro(cuentaFinancieraId);if(!cajaIdSeguro||!entidad||!cuenta)throw fallo('Recurso financiero no encontrado',404);const caja=db.prepare('SELECT * FROM cajas WHERE id=?').get(cajaIdSeguro);if(!caja)throw fallo('Recurso financiero no encontrado',404);cat.exigirAcceso(entidad,usuarioId,['finanzas_admin']);if(!db.prepare("SELECT 1 FROM fin_cuentas_financieras WHERE id=? AND entidad_id=? AND tipo='caja' AND estado='activa'").get(cuenta,entidad))throw fallo('Recurso financiero no encontrado',404);const usada=db.prepare('SELECT id FROM cajas WHERE cuenta_financiera_id=? AND activo=1 AND id<>?').get(cuenta,cajaIdSeguro);if(usada)throw fallo('La cuenta financiera ya está asociada a otra caja activa',409);db.prepare('UPDATE cajas SET entidad_id=?,cuenta_financiera_id=? WHERE id=?').run(entidad,cuenta,cajaIdSeguro);db.prepare("INSERT INTO fin_auditoria(entidad_id,usuario_id,accion,entidad_tabla,entidad_registro_id,datos_antes,datos_despues)VALUES(?,?, 'actualizar','cajas',?,?,?)").run(entidad,usuarioId,cajaIdSeguro,JSON.stringify({entidad_id:caja.entidad_id,cuenta_financiera_id:caja.cuenta_financiera_id}),JSON.stringify({entidad_id:entidad,cuenta_financiera_id:cuenta}));return cajaConfigurada(cajaIdSeguro); }
+function exigirOperacion(cajaId, usuarioId, roles = ['finanzas_admin', 'finanzas_operador', 'finanzas_personal_propietario']) { const caja = cajaConfigurada(cajaId); cat.exigirAcceso(caja.entidad_id, usuarioId, roles); return caja; }
+function bolsilloSinAsignar(entidadId) { const row = db.prepare("SELECT id FROM fin_bolsillos WHERE entidad_id=? AND tipo='sin_asignar' AND estado='activa'").get(entidadId); if (!row) throw fallo('La entidad no tiene bolsillo Sin asignar activo', 409); return row.id; }
+function cuentaPlan(entidadId, codigo) { const row = db.prepare("SELECT id FROM fin_plan_cuentas WHERE entidad_id=? AND codigo=? AND estado='activa'").get(entidadId, codigo); if (!row) throw fallo('Falta la cuenta contable requerida para Caja', 409); return row.id; }
+function cuentaCobrosPendientes(entidadId, usuarioId) { let row = db.prepare("SELECT id FROM fin_plan_cuentas WHERE entidad_id=? AND codigo='2199'").get(entidadId); if (!row) { const id = db.prepare("INSERT INTO fin_plan_cuentas(entidad_id,codigo,nombre,naturaleza,subtipo,creado_por,actualizado_por)VALUES(?,?,?,?,?,?,?)").run(entidadId,'2199','Cobros de ventas pendientes de integración','pasivo','otro_pasivo',usuarioId,usuarioId).lastInsertRowid; row={id:Number(id)}; } return row.id; }
+function limiteTurno(turno) { return turno.fecha_cierre || new Date().toISOString(); }
+function movimientosTurno(turnoId) { const turno = db.prepare('SELECT * FROM turnos_caja WHERE id=?').get(turnoId); if (!turno) throw fallo('Turno no existe', 404); const caja = cajaConfigurada(turno.caja_id); return db.prepare(`SELECT m.id, a.fecha, e.tipo, e.descripcion motivo, m.importe_minor, u.nombre usuario_nombre, 'financiero' origen
+  FROM fin_movimientos_tesoreria m JOIN fin_asientos_contables a ON a.id=(SELECT asiento_id FROM fin_lineas_asiento WHERE id=m.linea_asiento_id)
+  JOIN fin_eventos_financieros e ON e.id=m.evento_id JOIN usuarios u ON u.id=e.creado_por
+  WHERE m.cuenta_financiera_id=? AND date(a.fecha)>=date(?) AND date(a.fecha)<=date(?) ORDER BY a.fecha,m.id`).all(caja.cuenta_financiera_id,turno.fecha_apertura,limiteTurno(turno)).map(m=>({...m,monto:aMonto(m.importe_minor)})); }
+function efectivoEsperado(turnoId) { return movimientosTurno(turnoId).reduce((total,m)=>total+m.importe_minor,0); }
+function resumenTurno(turnoId) { const movimientos = movimientosTurno(turnoId); let totalIngresos=0,totalEgresos=0; for(const m of movimientos){if(m.importe_minor>=0)totalIngresos+=m.importe_minor;else totalEgresos+=-m.importe_minor;} return {movimientos,totalIngresos:aMonto(totalIngresos),totalEgresos:aMonto(totalEgresos),porMetodo:{Efectivo:aMonto(totalIngresos-totalEgresos)}}; }
 
-function turnoAbiertoPorId(turnoId) {
-  return db.prepare("SELECT * FROM turnos_caja WHERE id = ? AND estado = 'abierto'").get(turnoId);
-}
-
-// Resumen de un turno: movimientos, totales por método de pago e ingresos/egresos.
-// La apertura se contabiliza como un ingreso en efectivo (así el efectivo
-// esperado al cierre = suma de movimientos con metodo_pago = 'Efectivo').
-function resumenTurno(turnoId) {
-  const movimientos = db.prepare(`
-    SELECT m.*, u.nombre AS usuario_nombre FROM movimientos_caja m
-    JOIN usuarios u ON u.id = m.usuario_id
-    WHERE m.turno_id = ? ORDER BY m.id
-  `).all(turnoId);
-
-  const porMetodo = {};
-  let totalIngresos = 0;
-  let totalEgresos = 0;
-  for (const m of movimientos) {
-    const key = m.metodo_pago || "Otro";
-    porMetodo[key] = (porMetodo[key] || 0) + m.monto;
-    if (m.monto >= 0) totalIngresos += m.monto;
-    else totalEgresos += Math.abs(m.monto);
-  }
-
-  return { movimientos, porMetodo, totalIngresos, totalEgresos };
-}
-
-// Efectivo que debería haber físicamente en la caja: todo movimiento cuyo
-// método de pago es Efectivo, incluida la apertura.
-function efectivoEsperado(turnoId) {
-  const row = db.prepare(`
-    SELECT COALESCE(SUM(monto), 0) AS total FROM movimientos_caja
-    WHERE turno_id = ? AND metodo_pago = 'Efectivo'
-  `).get(turnoId);
-  return row.total;
-}
-
-const abrirTurno = db.transaction(({ cajaId, montoApertura, notas, usuarioId }) => {
-  // El índice único idx_turno_abierto_unico también protege esto a nivel de
-  // BD ante condiciones de carrera; esta verificación solo da un mensaje
-  // legible en el caso normal (sin carrera).
-  if (turnoAbierto(cajaId)) {
-    const err = new Error("Esta caja ya tiene un turno abierto. Ciérralo antes de abrir uno nuevo.");
-    err.status = 409;
-    throw err;
-  }
-
-  const info = db.prepare(`
-    INSERT INTO turnos_caja (caja_id, monto_apertura, notas_apertura, usuario_apertura_id)
-    VALUES (?, ?, ?, ?)
-  `).run(cajaId, montoApertura, notas || null, usuarioId);
-  const turnoId = info.lastInsertRowid;
-
-  db.prepare(`
-    INSERT INTO movimientos_caja (turno_id, tipo, metodo_pago, monto, motivo, referencia_tipo, usuario_id)
-    VALUES (?, 'apertura', 'Efectivo', ?, 'Apertura de caja', 'manual', ?)
-  `).run(turnoId, montoApertura, usuarioId);
-
-  return turnoId;
-});
-
-// Registra un movimiento sobre un turno abierto. Usado tanto por ingresos y
-// egresos manuales (routes/caja.js) como por la integración con ventas
-// (routes/ventas.routes.v2.js): cada pago de una venta o de un cobro genera
-// aquí un movimiento con referencia a la venta que lo originó.
-const registrarMovimiento = db.transaction(({ turnoId, tipo, metodoPago, monto, motivo, referenciaTipo, referenciaId, usuarioId, fecha }) => {
-  const turno = turnoAbiertoPorId(turnoId);
-  if (!turno) {
-    const err = new Error("El turno de caja indicado no existe o ya está cerrado.");
-    err.status = 409;
-    throw err;
-  }
-  if (metodoPago && !METODOS_PAGO.includes(metodoPago)) {
-    const err = new Error(`Método de pago inválido. Usa uno de: ${METODOS_PAGO.join(", ")}`);
-    err.status = 400;
-    throw err;
-  }
-
-  db.prepare(`
-    INSERT INTO movimientos_caja (turno_id, tipo, metodo_pago, monto, motivo, referencia_tipo, referencia_id, usuario_id, fecha)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(turnoId, tipo, metodoPago || null, monto, motivo || null, referenciaTipo || null, referenciaId || null, usuarioId, fecha || new Date().toISOString());
-});
-
-const cerrarTurno = db.transaction(({ turnoId, montoContado, notas, usuarioId }) => {
-  const turno = turnoAbiertoPorId(turnoId);
-  if (!turno) {
-    const err = new Error("Este turno ya está cerrado o no existe.");
-    err.status = 409;
-    throw err;
-  }
-
-  const esperado = efectivoEsperado(turnoId);
-  const diferencia = montoContado - esperado;
-
-  db.prepare(`
-    UPDATE turnos_caja SET
-      estado = 'cerrado', monto_cierre_esperado = ?, monto_cierre_contado = ?, diferencia = ?,
-      notas_cierre = ?, usuario_cierre_id = ?, fecha_cierre = datetime('now')
-    WHERE id = ?
-  `).run(esperado, montoContado, diferencia, notas || null, usuarioId, turnoId);
-
-  // El movimiento de cierre no mueve dinero (monto 0): es solo un marcador
-  // de auditoría dentro del propio historial de movimientos del turno.
-  db.prepare(`
-    INSERT INTO movimientos_caja (turno_id, tipo, metodo_pago, monto, motivo, referencia_tipo, usuario_id)
-    VALUES (?, 'cierre', 'Efectivo', 0, 'Cierre de caja', 'manual', ?)
-  `).run(turnoId, usuarioId);
-
-  return { turnoId, esperado, contado: montoContado, diferencia };
-});
-
-module.exports = {
-  METODOS_PAGO,
-  turnoAbierto,
-  turnoAbiertoPorId,
-  resumenTurno,
-  efectivoEsperado,
-  abrirTurno,
-  registrarMovimiento,
-  cerrarTurno,
-};
+const abrirTurno = db.transaction(({cajaId,montoApertura=0,notas,usuarioId,cajaOrigenId,fechaEfectiva}) => { const caja=exigirOperacion(cajaId,usuarioId); if(turnoAbierto(cajaId))throw fallo('Esta caja ya tiene un turno abierto. Ciérralo antes de abrir uno nuevo.',409); const minor=aMinor(montoApertura); if(minor&& !cajaOrigenId)throw fallo('El fondo de apertura debe provenir de una transferencia real desde otra caja o de un saldo inicial financiero previo.',409); if(minor){const origen=exigirOperacion(cajaOrigenId,usuarioId);if(origen.entidad_id!==caja.entidad_id)throw fallo('La caja origen debe pertenecer a la misma entidad',409);const bolsillo=bolsilloSinAsignar(caja.entidad_id);motor.transferencia(caja.entidad_id,usuarioId,`caja-apertura-${cajaId}-${Date.now()}`,{cuenta_origen_id:origen.cuenta_financiera_id,cuenta_destino_id:caja.cuenta_financiera_id,bolsillo_origen_id:bolsillo,bolsillo_destino_id:bolsillo,importe_minor:minor,fecha:fecha(fechaEfectiva),descripcion:`Fondo de apertura caja ${caja.nombre}`});}
+  return Number(db.prepare('INSERT INTO turnos_caja(caja_id,monto_apertura,notas_apertura,usuario_apertura_id,fecha_apertura)VALUES(?,?,?,?,?)').run(cajaId,aMonto(minor),notas||null,usuarioId,fechaEfectiva||new Date().toISOString()).lastInsertRowid); });
+function registrarManual({turnoId,tipo,monto,motivo,bolsilloId,usuarioId,fechaEfectiva,clave}) { const turno=turnoAbiertoPorId(turnoId);if(!turno)throw fallo('El turno de caja indicado no existe o ya está cerrado.',409);if(!['ingreso','egreso'].includes(tipo))throw fallo('Tipo inválido');const caja=exigirOperacion(turno.caja_id,usuarioId);const bolsillo=bolsilloId||bolsilloSinAsignar(caja.entidad_id);if(!db.prepare("SELECT 1 FROM fin_bolsillos WHERE id=? AND entidad_id=? AND estado='activa'").get(bolsillo,caja.entidad_id))throw fallo('El bolsillo no pertenece a la entidad',404);const minor=aMinor(monto);if(!minor)throw fallo('El monto debe ser mayor a cero');const contraparte=cuentaPlan(caja.entidad_id,tipo==='ingreso'?'4101':'5201');return motor.ejecutar({entidadId:caja.entidad_id,tipo:tipo==='ingreso'?'ingreso_caja':'egreso_caja',fecha:fecha(fechaEfectiva),descripcion:`${tipo==='ingreso'?'Ingreso':'Egreso'} manual caja ${caja.nombre}: ${motivo}`,usuarioId,clave:clave||`caja-manual-${turnoId}-${tipo}-${Date.now()}`,payload:{turnoId,tipo,monto:minor,motivo,bolsillo},lineas:tipo==='ingreso'?[{cuenta_contable_id:caja.cuenta_contable_id,cuenta_financiera_id:caja.cuenta_financiera_id,debe_minor:minor,haber_minor:0},{cuenta_contable_id:contraparte,debe_minor:0,haber_minor:minor}]:[{cuenta_contable_id:contraparte,debe_minor:minor,haber_minor:0},{cuenta_contable_id:caja.cuenta_contable_id,cuenta_financiera_id:caja.cuenta_financiera_id,debe_minor:0,haber_minor:minor}],asigs:tipo==='ingreso'?[{cuenta_destino_id:caja.cuenta_financiera_id,bolsillo_destino_id:bolsillo,importe_minor:minor}]:[{cuenta_origen_id:caja.cuenta_financiera_id,bolsillo_origen_id:bolsillo,importe_minor:minor}]}); }
+function transferirEntreCajas({cajaOrigenId,cajaDestinoId,monto,bolsilloOrigenId,bolsilloDestinoId,usuarioId,fechaEfectiva,clave}) { const origen=exigirOperacion(cajaOrigenId,usuarioId),destino=exigirOperacion(cajaDestinoId,usuarioId);if(origen.entidad_id!==destino.entidad_id)throw fallo('Las cajas deben pertenecer a la misma entidad',409);const bo=bolsilloOrigenId||bolsilloSinAsignar(origen.entidad_id),bd=bolsilloDestinoId||bolsilloSinAsignar(origen.entidad_id);return motor.transferencia(origen.entidad_id,usuarioId,clave||`caja-transfer-${cajaOrigenId}-${cajaDestinoId}-${Date.now()}`,{cuenta_origen_id:origen.cuenta_financiera_id,cuenta_destino_id:destino.cuenta_financiera_id,bolsillo_origen_id:bo,bolsillo_destino_id:bd,importe_minor:aMinor(monto),fecha:fecha(fechaEfectiva),descripcion:`Transferencia entre cajas ${origen.nombre} → ${destino.nombre}`}); }
+const cerrarTurno = db.transaction(({turnoId,montoContado,notas,usuarioId,clave}) => { const turno=turnoAbiertoPorId(turnoId);if(!turno)throw fallo('Este turno ya está cerrado o no existe.',409);const caja=exigirOperacion(turno.caja_id,usuarioId);const esperado=efectivoEsperado(turnoId),contado=aMinor(montoContado),diferencia=contado-esperado;if(diferencia){const cuentaAjuste=cuentaPlan(caja.entidad_id,diferencia>0?'4101':'5201'),bolsillo=bolsilloSinAsignar(caja.entidad_id),n=Math.abs(diferencia);motor.ejecutar({entidadId:caja.entidad_id,tipo:'ajuste_conciliacion',fecha:fecha(),descripcion:`Ajuste de arqueo caja ${caja.nombre}: ${notas||'sin observaciones'}`,usuarioId,clave:clave||`caja-arqueo-${turnoId}`,payload:{turnoId,contado,esperado,diferencia},lineas:diferencia>0?[{cuenta_contable_id:caja.cuenta_contable_id,cuenta_financiera_id:caja.cuenta_financiera_id,debe_minor:n,haber_minor:0},{cuenta_contable_id:cuentaAjuste,debe_minor:0,haber_minor:n}]:[{cuenta_contable_id:cuentaAjuste,debe_minor:n,haber_minor:0},{cuenta_contable_id:caja.cuenta_contable_id,cuenta_financiera_id:caja.cuenta_financiera_id,debe_minor:0,haber_minor:n}],asigs:diferencia>0?[{cuenta_destino_id:caja.cuenta_financiera_id,bolsillo_destino_id:bolsillo,importe_minor:n}]:[{cuenta_origen_id:caja.cuenta_financiera_id,bolsillo_origen_id:bolsillo,importe_minor:n}]});}db.prepare("UPDATE turnos_caja SET estado='cerrado',monto_cierre_esperado=?,monto_cierre_contado=?,diferencia=?,notas_cierre=?,usuario_cierre_id=?,fecha_cierre=datetime('now') WHERE id=?").run(aMonto(esperado),aMonto(contado),aMonto(diferencia),notas||null,usuarioId,turnoId);return{turnoId,esperado:aMonto(esperado),contado:aMonto(contado),diferencia:aMonto(diferencia)}; });
+function registrarCobroVenta({turnoId,ventaId,pagoId,monto,metodoPago,usuarioId,fechaEfectiva,fecha:fechaCompat}) { const turno=turnoAbiertoPorId(turnoId);if(!turno)throw fallo('El turno de caja indicado no existe o ya está cerrado.',409);const caja=exigirOperacion(turno.caja_id,usuarioId);const minor=aMinor(monto),bolsillo=bolsilloSinAsignar(caja.entidad_id),transitoria=cuentaCobrosPendientes(caja.entidad_id,usuarioId),efectiva=fecha(fechaEfectiva||fechaCompat);return motor.ejecutar({entidadId:caja.entidad_id,tipo:'cobro_venta',fecha:efectiva,descripcion:`Cobro venta ${ventaId}, pago ${pagoId}, turno ${turnoId}, caja ${caja.id}, método ${metodoPago}`,usuarioId,clave:`venta-pago-${pagoId}`,payload:{ventaId,pagoId,turnoId,cajaId:caja.id,metodoPago,monto:minor,fecha:efectiva},lineas:[{cuenta_contable_id:caja.cuenta_contable_id,cuenta_financiera_id:caja.cuenta_financiera_id,debe_minor:minor,haber_minor:0},{cuenta_contable_id:transitoria,debe_minor:0,haber_minor:minor}],asigs:[{cuenta_destino_id:caja.cuenta_financiera_id,bolsillo_destino_id:bolsillo,importe_minor:minor}]}); }
+module.exports={turnoAbierto,turnoAbiertoPorId,cajaConfigurada,configurarCaja,movimientosTurno,resumenTurno,efectivoEsperado,abrirTurno,registrarManual,transferirEntreCajas,cerrarTurno,registrarCobroVenta};
