@@ -126,6 +126,15 @@ export const listarCajas = () =>
 export const crearCaja = (data) =>
   client.post("/caja", data).then((r) => r.data);
 
+export const configurarCajaFinanciera = (id, data) =>
+  client.patch(`/caja/${id}/configuracion-financiera`, data).then((r) => r.data);
+
+export const listarEntidadesFinancieras = () =>
+  client.get("/finanzas/entidades").then((r) => r.data);
+
+export const listarCuentasFinancieras = (entidadId) =>
+  client.get(`/finanzas/entidades/${entidadId}/cuentas-financieras`).then((r) => r.data);
+
 export const eliminarCaja = (id) =>
   client.delete(`/caja/${id}`).then((r) => r.data);
 

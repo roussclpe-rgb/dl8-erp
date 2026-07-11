@@ -1,5 +1,6 @@
 // src/routes/ventas.js
 const express = require("express");
+const crypto = require("crypto");
 const { db, obtenerOCrearPeriodo } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { exigirPeriodoAbierto } = require("../services/periodos");
@@ -19,6 +20,12 @@ function saldoVenta(ventaId) {
     .prepare("SELECT COALESCE(SUM(monto), 0) AS total FROM pagos WHERE venta_id = ?")
     .get(ventaId).total;
   return venta.total - pagado;
+}
+
+function hashPagoHttp(ventaId, pagos, turnoCajaId) {
+  return crypto.createHash("sha256")
+    .update(JSON.stringify({ venta_id: Number(ventaId), pagos, turno_caja_id: turnoCajaId || null }))
+    .digest("hex");
 }
 
 // Si la venta/cobro trae un turno_caja_id, exige que ese turno esté abierto
@@ -67,11 +74,20 @@ router.get("/:id", (req, res) => {
 
 // body: { cliente_id, fecha, items: [{ receta_grupo_id, cantidad }], pagos?: [{ monto, metodoPago }] }
 router.post("/", requireRole("admin", "operador", "vendedor"), (req, res) => {
-  const { cliente_id, fecha, items, pagos = [], turno_caja_id } = req.body;
+  const { cliente_id, fecha, items, pagos = [], turno_caja_id, descuento_tipo, descuento_valor } = req.body;
 
   if (!cliente_id || !fecha || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "cliente_id, fecha e items son obligatorios" });
   }
+
+  // Validación de seguridad: evita cantidades negativas, cero o inválidas
+for (const it of items) {
+  if (!it.receta_grupo_id || !(Number(it.cantidad) > 0)) {
+    return res.status(400).json({
+      error: "Cada producto debe tener una cantidad mayor a 0"
+    });
+  }
+}
 
   const cliente = db.prepare("SELECT * FROM clientes WHERE id = ? AND activo = 1").get(cliente_id);
   if (!cliente) return res.status(400).json({ error: "Cliente no existe o está inactivo" });
@@ -88,13 +104,28 @@ router.post("/", requireRole("admin", "operador", "vendedor"), (req, res) => {
   // sola transacción: si el stock no alcanza a mitad de camino, better-sqlite3
   // revierte todo automáticamente, igual que en producciones.js.
   const crearVenta = db.transaction(() => {
-    const { itemsCalculados, total } = calcularVenta({ items, cliente });
+    const { itemsCalculados, subtotal, descuentoMonto, total } = calcularVenta({
+      items,
+      cliente,
+      descuentoTipo: descuento_tipo,
+      descuentoValor: descuento_valor,
+    });
 
     const folio = siguienteFolio();
     const info = db.prepare(`
-      INSERT INTO ventas (folio, fecha, cliente_id, periodo_id, subtotal, total, usuario_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(folio, fecha, cliente_id, periodo.id, total, total, req.usuario.id);
+      INSERT INTO ventas (folio, fecha, cliente_id, periodo_id, subtotal, descuento_tipo, descuento_valor, total, usuario_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      folio,
+      fecha,
+      cliente_id,
+      periodo.id,
+      subtotal,
+      descuentoMonto > 0 ? descuento_tipo : null,
+      descuentoMonto > 0 ? Number(descuento_valor) : 0,
+      total,
+      req.usuario.id
+    );
     const ventaId = info.lastInsertRowid;
 
     const insItem = db.prepare(`
@@ -111,10 +142,12 @@ router.post("/", requireRole("admin", "operador", "vendedor"), (req, res) => {
     pagos
       .filter((p) => p.monto > 0)
       .forEach((p) => {
-        insPago.run(ventaId, p.monto, p.metodoPago, fecha, req.usuario.id);
+        const pagoId = Number(insPago.run(ventaId, p.monto, p.metodoPago, fecha, req.usuario.id).lastInsertRowid);
         if (turno_caja_id) {
-          caja.registrarMovimiento({
+          const evento = caja.registrarCobroVenta({
             turnoId: turno_caja_id,
+            ventaId,
+            pagoId,
             tipo: "venta",
             metodoPago: p.metodoPago,
             monto: p.monto,
@@ -124,6 +157,7 @@ router.post("/", requireRole("admin", "operador", "vendedor"), (req, res) => {
             usuarioId: req.usuario.id,
             fecha,
           });
+          db.prepare("UPDATE pagos SET evento_financiero_id = ? WHERE id = ?").run(evento.id, pagoId);
         }
       });
 
@@ -178,6 +212,16 @@ router.post("/:id/pagos", requireRole("admin", "operador", "vendedor"), (req, re
 
   const { pagos = [], turno_caja_id } = req.body;
   const hoy = new Date().toISOString().slice(0, 10);
+  const claveIdempotencia = req.get("Idempotency-Key")?.trim();
+  const hashPayload = claveIdempotencia ? hashPagoHttp(venta.id, pagos, turno_caja_id) : null;
+
+  if (claveIdempotencia) {
+    const previo = db.prepare("SELECT hash_payload, respuesta_json FROM pagos_claves_idempotencia WHERE usuario_id = ? AND clave = ?").get(req.usuario.id, claveIdempotencia);
+    if (previo) {
+      if (previo.hash_payload !== hashPayload) return res.status(409).json({ error: "La clave de idempotencia se usó con otro payload" });
+      return res.json(JSON.parse(previo.respuesta_json));
+    }
+  }
 
   try {
     validarTurnoSiAplica(turno_caja_id);
@@ -192,10 +236,12 @@ router.post("/:id/pagos", requireRole("admin", "operador", "vendedor"), (req, re
     pagos
           .filter((p) => p.monto > 0)
           .forEach((p) => {
-            insPago.run(venta.id, p.monto, p.metodoPago, hoy, req.usuario.id);
+            const pagoId = Number(insPago.run(venta.id, p.monto, p.metodoPago, hoy, req.usuario.id).lastInsertRowid);
             if (turno_caja_id) {
-              caja.registrarMovimiento({
+              const evento = caja.registrarCobroVenta({
                 turnoId: turno_caja_id,
+                ventaId: venta.id,
+                pagoId,
                 tipo: "cobro",
                 metodoPago: p.metodoPago,
                 monto: p.monto,
@@ -205,12 +251,24 @@ router.post("/:id/pagos", requireRole("admin", "operador", "vendedor"), (req, re
                 usuarioId: req.usuario.id,
                 fecha: hoy,
               });
+              db.prepare("UPDATE pagos SET evento_financiero_id = ? WHERE id = ?").run(evento.id, pagoId);
             }
           });
-      });
-  registrar();
+    const resultado = { saldo: saldoVenta(venta.id) };
+    if (claveIdempotencia) {
+      db.prepare("INSERT INTO pagos_claves_idempotencia (venta_id, usuario_id, clave, hash_payload, respuesta_json) VALUES (?, ?, ?, ?, ?)")
+        .run(venta.id, req.usuario.id, claveIdempotencia, hashPayload, JSON.stringify(resultado));
+    }
+    return resultado;
+  });
+  let resultado;
+  try {
+    resultado = registrar();
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message });
+  }
 
-  res.json({ saldo: saldoVenta(venta.id) });
+  res.json(resultado);
 });
 
 module.exports = router;

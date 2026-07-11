@@ -2,6 +2,7 @@ const express = require("express");
 const { db } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const caja = require("../services/caja");
+const catalogos = require("../services/finanzas/catalogos");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -18,9 +19,17 @@ router.get("/", (req, res) => {
 });
 
 router.post("/", requireRole("admin"), (req, res) => {
-  const { nombre } = req.body;
+  const { nombre, entidad_id, cuenta_financiera_id } = req.body;
   if (!nombre?.trim()) return res.status(400).json({ error: "El nombre es obligatorio" });
-  const info = db.prepare("INSERT INTO cajas (nombre) VALUES (?)").run(nombre.trim());
+  if ((entidad_id == null) !== (cuenta_financiera_id == null)) return res.status(400).json({ error: "entidad_id y cuenta_financiera_id deben configurarse juntos" });
+  if (entidad_id != null) {
+    try {
+      catalogos.exigirAcceso(entidad_id, req.usuario.id, ["finanzas_admin"]);
+      const cuenta = db.prepare("SELECT 1 FROM fin_cuentas_financieras WHERE id=? AND entidad_id=? AND tipo='caja' AND estado='activa'").get(cuenta_financiera_id, entidad_id);
+      if (!cuenta) return res.status(400).json({ error: "La cuenta financiera debe ser una caja activa de la entidad" });
+    } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+  }
+  const info = db.prepare("INSERT INTO cajas (nombre, entidad_id, cuenta_financiera_id) VALUES (?, ?, ?)").run(nombre.trim(), entidad_id || null, cuenta_financiera_id || null);
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
@@ -33,16 +42,18 @@ router.delete("/:id", requireRole("admin"), (req, res) => {
   res.json({ ok: true });
 });
 
+router.patch('/:id/configuracion-financiera', requireRole('admin'), (req,res) => { try { res.json(caja.configurarCaja({cajaId:req.params.id,entidadId:req.body.entidad_id,cuentaFinancieraId:req.body.cuenta_financiera_id,usuarioId:req.usuario.id})); } catch(e) { res.status(e.status||400).json({error:e.message}); } });
+
 // ---------- Turno actual de una caja ----------
 
 router.get("/:id/turno-actual", (req, res) => {
   const turno = caja.turnoAbierto(req.params.id);
   if (!turno) return res.json(null);
-  res.json({ ...turno, ...caja.resumenTurno(turno.id), efectivoEsperado: caja.efectivoEsperado(turno.id) });
+  try { res.json({ ...turno, ...caja.resumenTurno(turno.id), efectivoEsperado: caja.efectivoEsperado(turno.id) / 100 }); } catch (e) { res.status(e.status || 400).json({ error: e.message }); }
 });
 
 router.post("/:id/abrir", requireRole("admin", "operador", "vendedor"), (req, res) => {
-  const { monto_apertura, notas } = req.body;
+  const { monto_apertura, notas, caja_origen_id, fecha_efectiva } = req.body;
   if (!(monto_apertura >= 0)) return res.status(400).json({ error: "monto_apertura debe ser 0 o mayor" });
 
   const cajaRow = db.prepare("SELECT * FROM cajas WHERE id = ? AND activo = 1").get(req.params.id);
@@ -50,7 +61,7 @@ router.post("/:id/abrir", requireRole("admin", "operador", "vendedor"), (req, re
 
   let turnoId;
   try {
-    turnoId = caja.abrirTurno({ cajaId: req.params.id, montoApertura: monto_apertura, notas, usuarioId: req.usuario.id });
+    turnoId = caja.abrirTurno({ cajaId: req.params.id, montoApertura: monto_apertura, notas, usuarioId: req.usuario.id, cajaOrigenId: caja_origen_id, fechaEfectiva: fecha_efectiva });
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
   }
@@ -99,7 +110,7 @@ router.post("/turnos/:turnoId/cerrar", requireRole("admin", "operador", "vendedo
 
   let resultado;
   try {
-    resultado = caja.cerrarTurno({ turnoId: req.params.turnoId, montoContado: monto_contado, notas, usuarioId: req.usuario.id });
+    resultado = caja.cerrarTurno({ turnoId: req.params.turnoId, montoContado: monto_contado, notas, usuarioId: req.usuario.id, clave: req.get('Idempotency-Key') });
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
   }
@@ -112,7 +123,7 @@ router.post("/turnos/:turnoId/cerrar", requireRole("admin", "operador", "vendedo
 // sale de caja por fuera de una venta (ej. compra menor, retiro a bóveda).
 
 router.post("/movimientos", requireRole("admin", "operador", "vendedor"), (req, res) => {
-  const { turno_id, tipo, monto, metodo_pago, motivo } = req.body;
+  const { turno_id, tipo, monto, motivo, bolsillo_id, fecha } = req.body;
   if (!["ingreso", "egreso"].includes(tipo)) {
     return res.status(400).json({ error: "Tipo inválido. Usa: ingreso o egreso" });
   }
@@ -120,34 +131,29 @@ router.post("/movimientos", requireRole("admin", "operador", "vendedor"), (req, 
     return res.status(400).json({ error: "Monto (mayor a 0) y motivo son obligatorios" });
   }
 
-  const montoFirmado = tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
   try {
-    caja.registrarMovimiento({
+    const evento = caja.registrarManual({
       turnoId: turno_id,
       tipo,
-      metodoPago: metodo_pago || "Efectivo",
-      monto: montoFirmado,
+      monto,
       motivo,
-      referenciaTipo: "manual",
-      referenciaId: null,
+      bolsilloId: bolsillo_id,
       usuarioId: req.usuario.id,
-      fecha: new Date().toISOString(),
+      fechaEfectiva: fecha,
+      clave: req.get('Idempotency-Key'),
     });
+    return res.status(201).json({ ok: true, evento_financiero_id: evento.id });
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
   }
-  res.status(201).json({ ok: true });
 });
 
 router.get("/movimientos", (req, res) => {
   const { turno_id } = req.query;
   if (!turno_id) return res.status(400).json({ error: "turno_id es obligatorio" });
-  res.json(db.prepare(`
-    SELECT m.*, u.nombre AS usuario_nombre FROM movimientos_caja m
-    JOIN usuarios u ON u.id = m.usuario_id
-    WHERE m.turno_id = ?
-    ORDER BY m.id DESC
-  `).all(turno_id));
+  try { res.json(caja.movimientosTurno(turno_id)); } catch (e) { res.status(e.status || 400).json({ error: e.message }); }
 });
+
+router.post('/transferencias', requireRole('admin','operador','vendedor'), (req,res) => { try { const evento=caja.transferirEntreCajas({cajaOrigenId:req.body.caja_origen_id,cajaDestinoId:req.body.caja_destino_id,monto:req.body.monto,bolsilloOrigenId:req.body.bolsillo_origen_id,bolsilloDestinoId:req.body.bolsillo_destino_id,usuarioId:req.usuario.id,fechaEfectiva:req.body.fecha,clave:req.get('Idempotency-Key')}); res.status(201).json({evento_financiero_id:evento.id}); } catch(e) { res.status(e.status||400).json({error:e.message}); } });
 
 module.exports = router;
