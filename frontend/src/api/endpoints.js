@@ -22,10 +22,19 @@ export const eliminarIngrediente = (id) => client.delete(`/ingredientes/${id}`).
 
 // ---------- Compras ----------
 export const listarCompras = () => client.get("/compras").then((r) => r.data);
-export const crearCompra = (data) => client.post("/compras", data).then((r) => r.data);
+export const crearCompra = (data, idempotencyKey) =>
+  client.post("/compras", data, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined }).then((r) => r.data);
 export const editarCompra = (id, data) => client.put(`/compras/${id}`, data).then((r) => r.data);
 export const unidadesCompatibles = (ingredienteId) =>
   client.get(`/compras/unidades-compatibles/${ingredienteId}`).then((r) => r.data);
+export const listarDocumentosCxP = (params) => client.get("/compras/documentos-cxp", { params }).then((r) => r.data);
+export const obtenerDocumentoCxP = (id) => client.get(`/compras/documentos-cxp/${id}`).then((r) => r.data);
+export const listarComprasHistoricas = (params) => client.get("/compras/historicas", { params }).then((r) => r.data);
+export const registrarPagoCxP = (data, idempotencyKey) =>
+  client.post("/compras/pagos", data, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined }).then((r) => r.data);
+export const anularCompra = (id, idempotencyKey) => client.post(`/compras/${id}/anular`, {}, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined }).then((r) => r.data);
+export const revertirPagoCxP = (id, idempotencyKey) => client.post(`/compras/pagos/${id}/reversiones`, {}, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined }).then((r) => r.data);
+export const crearNotaCreditoCxP = (id, data, idempotencyKey) => client.post(`/compras/documentos-cxp/${id}/notas-credito`, data, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined }).then((r) => r.data);
 
 // ---------- Ajustes ----------
 export const listarAjustes = () => client.get("/ajustes").then((r) => r.data);
@@ -134,6 +143,9 @@ export const listarEntidadesFinancieras = () =>
 
 export const listarCuentasFinancieras = (entidadId) =>
   client.get(`/finanzas/entidades/${entidadId}/cuentas-financieras`).then((r) => r.data);
+
+export const listarBolsillos = (entidadId) =>
+  client.get(`/finanzas/entidades/${entidadId}/bolsillos`).then((r) => r.data);
 
 export const eliminarCaja = (id) =>
   client.delete(`/caja/${id}`).then((r) => r.data);

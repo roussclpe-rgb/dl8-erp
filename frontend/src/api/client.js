@@ -21,7 +21,9 @@ client.interceptors.response.use(
       }
     }
     const mensaje = error.response?.data?.error || error.message || "Error de red";
-    return Promise.reject(new Error(mensaje));
+    const errorNormalizado = new Error(mensaje);
+    errorNormalizado.status = error.response?.status;
+    return Promise.reject(errorNormalizado);
   }
 );
 

@@ -71,7 +71,7 @@ function calcularVenta({ items, cliente }) {
     };
   });
 
-  return { itemsCalculados, total };
+  return { itemsCalculados, subtotal: total, descuentoMonto: 0, total };
 }
 
 module.exports = { stockDisponible, productoVendible, calcularVenta };

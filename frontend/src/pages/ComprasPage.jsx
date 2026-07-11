@@ -1,19 +1,24 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Box, Grid, TextField, MenuItem, Button, Stack, IconButton, Tooltip } from "@mui/material";
+import { Box, Grid, TextField, MenuItem, Button, Stack, IconButton, Tooltip, Tab, Tabs, Chip } from "@mui/material";
 import EditIcon from "@mui/icons-material/EditOutlined";
+import CancelIcon from "@mui/icons-material/CancelOutlined";
 
 import PageHeader from "../components/PageHeader";
 import DataTable from "../components/DataTable";
 import FormDialog from "../components/FormDialog";
+import ConfirmDialog from "../components/ConfirmDialog";
+import PorPagarTab from "../components/compras/PorPagarTab";
+import ComprasHistoricasTab from "../components/compras/ComprasHistoricasTab";
 import { useAuth } from "../context/AuthContext";
 import { useNotify } from "../hooks/useNotify";
 import { formatoNumero, formatoFecha, fechaHoyISO } from "../utils/format";
-import { listarCompras, crearCompra, editarCompra, unidadesCompatibles, listarIngredientes, listarProveedores } from "../api/endpoints";
+import { anularCompra, listarCompras, crearCompra, editarCompra, unidadesCompatibles, listarIngredientes, listarProveedores, listarEntidadesFinancieras } from "../api/endpoints";
 
-const schema = z.object({
+const schemaComun = z.object({
+  entidad_id: z.union([z.coerce.number().positive(), z.literal("")]).optional(),
   ingrediente_id: z.coerce.number({ invalid_type_error: "Selecciona un ingrediente" }).positive("Selecciona un ingrediente"),
   proveedor_id: z.union([z.coerce.number().positive(), z.literal("")]).optional(),
   fecha_compra: z.string().min(1, "La fecha es obligatoria"),
@@ -24,8 +29,13 @@ const schema = z.object({
   contenido_por_presentacion: z.coerce.number().positive("Debe ser mayor a 0"),
   costo_total: z.coerce.number().positive("Debe ser mayor a 0"),
 });
+const schemaNueva = schemaComun.extend({
+  entidad_id: z.coerce.number({ invalid_type_error: "Selecciona una entidad" }).positive("Selecciona una entidad"),
+  proveedor_id: z.coerce.number({ invalid_type_error: "Selecciona un proveedor" }).positive("Selecciona un proveedor"),
+});
 
 const defaultValues = {
+  entidad_id: "",
   ingrediente_id: "",
   proveedor_id: "",
   fecha_compra: fechaHoyISO(),
@@ -43,11 +53,18 @@ export default function ComprasPage() {
   const [rows, setRows] = useState([]);
   const [ingredientes, setIngredientes] = useState([]);
   const [proveedores, setProveedores] = useState([]);
+  const [entidades, setEntidades] = useState([]);
   const [unidades, setUnidades] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState(0);
+  const [anulando, setAnulando] = useState(null);
+  const [anulandoEnvio, setAnulandoEnvio] = useState(false);
+  const [historicosVersion, setHistoricosVersion] = useState(0);
+  const idempotencyKeyRef = useRef(null);
+  const anulacionKeyRef = useRef(null);
 
   const {
     register,
@@ -56,17 +73,18 @@ export default function ComprasPage() {
     reset,
     watch,
     formState: { errors },
-  } = useForm({ resolver: zodResolver(schema), defaultValues });
+  } = useForm({ resolver: (...args) => zodResolver(editing ? schemaComun : schemaNueva)(...args), defaultValues });
 
   const ingredienteId = watch("ingrediente_id");
 
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
-      const [compras, ing, prov] = await Promise.all([listarCompras(), listarIngredientes(), listarProveedores()]);
+      const [compras, ing, prov, ent] = await Promise.all([listarCompras(), listarIngredientes(), listarProveedores(), listarEntidadesFinancieras()]);
       setRows(compras);
       setIngredientes(ing);
       setProveedores(prov);
+      setEntidades(ent);
     } catch (e) {
       notify.error(e);
     } finally {
@@ -90,6 +108,7 @@ export default function ComprasPage() {
 
   const abrirNuevo = () => {
     setEditing(null);
+    idempotencyKeyRef.current = null;
     reset(defaultValues);
     setDialogOpen(true);
   };
@@ -99,6 +118,7 @@ export default function ComprasPage() {
     reset({
       ingrediente_id: row.ingrediente_id,
       proveedor_id: row.proveedor_id || "",
+      entidad_id: row.entidad_id || "",
       fecha_compra: row.fecha_compra,
       fecha_vencimiento: row.fecha_vencimiento || "",
       presentacion: row.presentacion || "",
@@ -111,17 +131,20 @@ export default function ComprasPage() {
   };
 
   const onSubmit = async (data) => {
-    const payload = { ...data, proveedor_id: data.proveedor_id || null, fecha_vencimiento: data.fecha_vencimiento || null };
+    const payload = { ...data, proveedor_id: data.proveedor_id || null, entidad_id: data.entidad_id || null, fecha_vencimiento: data.fecha_vencimiento || null };
     setSaving(true);
     try {
       if (editing) {
         await editarCompra(editing.id, payload);
         notify.success("Compra actualizada");
+        if (editing.historico) setHistoricosVersion((version) => version + 1);
       } else {
-        await crearCompra(payload);
+        idempotencyKeyRef.current ||= crypto.randomUUID();
+        await crearCompra(payload, idempotencyKeyRef.current);
         notify.success("Compra registrada");
       }
       setDialogOpen(false);
+      idempotencyKeyRef.current = null;
       cargar();
     } catch (e) {
       notify.error(e);
@@ -131,11 +154,33 @@ export default function ComprasPage() {
   };
 
   const puedeEscribir = hasRole("admin", "operador");
+  const puedeAnular = hasRole("admin");
+  const mensajeError = (error, accion) => {
+    const prefijos = { 400: "Revisa los datos", 403: "No tienes permisos", 404: "El registro ya no existe", 409: "La operación está bloqueada" };
+    notify.error(`${prefijos[error?.status] || `No se pudo ${accion}`}: ${error.message}`);
+  };
+  const confirmarAnulacion = async () => {
+    if (!anulando) return;
+    setAnulandoEnvio(true);
+    try {
+      anulacionKeyRef.current ||= crypto.randomUUID();
+      await anularCompra(anulando.id, anulacionKeyRef.current);
+      notify.success("Compra anulada");
+      setAnulando(null);
+      anulacionKeyRef.current = null;
+      cargar();
+    } catch (error) {
+      mensajeError(error, "anular la compra");
+    } finally {
+      setAnulandoEnvio(false);
+    }
+  };
 
   const columns = [
     { field: "fecha_compra", headerName: "Fecha", renderCell: (r) => formatoFecha(r.fecha_compra) },
     { field: "ingrediente_nombre", headerName: "Ingrediente", minWidth: 160 },
     { field: "proveedor_nombre", headerName: "Proveedor", renderCell: (r) => r.proveedor_nombre || "—" },
+    { field: "integracion", headerName: "Integración", renderCell: (r) => r.historico ? <Chip size="small" label="Histórica" variant="outlined" /> : <Chip size="small" label={`CxP ${r.estado_cxp}`} color={r.estado_cxp === "parcial" ? "warning" : r.estado_cxp === "pagada" ? "success" : "default"} /> },
     {
       field: "cantidad_comprada",
       headerName: "Cantidad",
@@ -156,13 +201,10 @@ export default function ComprasPage() {
       align: "right",
       sortable: false,
       renderCell: (r) =>
-        puedeEscribir ? (
-          <Tooltip title="Editar">
-            <IconButton size="small" onClick={() => abrirEditar(r)}>
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        ) : null,
+        <Stack direction="row">
+          {puedeEscribir && r.historico && <Tooltip title="Editar"><IconButton size="small" onClick={() => abrirEditar(r)}><EditIcon fontSize="small" /></IconButton></Tooltip>}
+          {puedeAnular && !r.historico && r.estado_cxp !== "anulada" && <Tooltip title="Anular compra"><IconButton size="small" color="error" onClick={() => { anulacionKeyRef.current = crypto.randomUUID(); setAnulando(r); }}><CancelIcon fontSize="small" /></IconButton></Tooltip>}
+        </Stack>,
     },
   ];
 
@@ -171,15 +213,33 @@ export default function ComprasPage() {
       <PageHeader
         title="Compras"
         subtitle="Registro de lotes de materia prima, con vencimiento y costo real."
-        actionLabel={puedeEscribir ? "Nueva compra" : null}
+        actionLabel={tab === 0 && puedeEscribir ? "Nueva compra" : null}
         onAction={abrirNuevo}
       />
+      <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ mb: 2 }}>
+        <Tab label="Compras" />
+        <Tab label="Históricas" />
+        <Tab label="Por pagar" />
+      </Tabs>
 
+      {tab === 2 ? <PorPagarTab /> : tab === 1 ? <ComprasHistoricasTab proveedores={proveedores} ingredientes={ingredientes} onEdit={abrirEditar} refreshKey={historicosVersion} /> : <>
       <DataTable columns={columns} rows={rows} loading={loading} searchPlaceholder="Buscar por ingrediente o proveedor…" defaultOrderBy="fecha_compra" defaultOrder="desc" />
 
       <FormDialog open={dialogOpen} onClose={() => setDialogOpen(false)} title={editing ? "Editar compra" : "Nueva compra"} maxWidth="md">
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
           <Grid container spacing={2}>
+            <Grid item xs={12} sm={6}>
+              <Controller
+                name="entidad_id"
+                control={control}
+                render={({ field }) => (
+                  <TextField {...field} select label="Entidad económica" fullWidth error={!!errors.entidad_id} helperText={errors.entidad_id?.message}>
+                    <MenuItem value="">Selecciona…</MenuItem>
+                    {entidades.map((entidad) => <MenuItem key={entidad.id} value={entidad.id}>{entidad.nombre}</MenuItem>)}
+                  </TextField>
+                )}
+              />
+            </Grid>
             <Grid item xs={12} sm={6}>
               <Controller
                 name="ingrediente_id"
@@ -201,8 +261,8 @@ export default function ComprasPage() {
                 name="proveedor_id"
                 control={control}
                 render={({ field }) => (
-                  <TextField {...field} select label="Proveedor (opcional)" fullWidth>
-                    <MenuItem value="">Sin proveedor</MenuItem>
+                  <TextField {...field} select label="Proveedor" fullWidth error={!!errors.proveedor_id} helperText={errors.proveedor_id?.message}>
+                    <MenuItem value="">Selecciona…</MenuItem>
                     {proveedores.map((p) => (
                       <MenuItem key={p.id} value={p.id}>
                         {p.nombre}
@@ -289,6 +349,17 @@ export default function ComprasPage() {
           </Stack>
         </Box>
       </FormDialog>
+      </>}
+      <ConfirmDialog
+        open={!!anulando}
+        title="¿Anular compra?"
+        message="Esta acción revierte la emisión y el inventario solo si la compra no tiene pagos ni consumo. No se puede deshacer."
+        confirmText="Anular compra"
+        danger
+        loading={anulandoEnvio}
+        onClose={() => !anulandoEnvio && setAnulando(null)}
+        onConfirm={confirmarAnulacion}
+      />
     </Box>
   );
 }
