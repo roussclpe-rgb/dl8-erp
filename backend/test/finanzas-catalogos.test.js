@@ -48,7 +48,22 @@ test("el esquema financiero es idempotente y crea sus restricciones SQLite", () 
   const tablasConFk = ["fin_entidades_economicas", "fin_propietarios", "fin_periodos", "fin_plan_cuentas", "fin_participaciones", "fin_cuentas_financieras", "fin_bolsillos", "fin_accesos_entidad", "fin_auditoria"];
   for (const tabla of tablasConFk) assert.ok(db.prepare(`PRAGMA foreign_key_list(${tabla})`).all().length > 0, `${tabla} debe conservar sus claves foráneas`);
   const triggers = db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'trg_fin_%' ORDER BY name").all().map((r) => r.name);
-  assert.deepEqual(triggers, ["trg_fin_cuenta_financiera_mapeo_insert", "trg_fin_cuenta_financiera_mapeo_update", "trg_fin_participacion_sin_solape_insert", "trg_fin_participacion_sin_solape_update"]);
+  assert.deepEqual(triggers, [
+    "trg_fin_asientos_no_delete",
+    "trg_fin_asientos_no_update",
+    "trg_fin_asignaciones_no_delete",
+    "trg_fin_asignaciones_no_update",
+    "trg_fin_cuenta_financiera_mapeo_insert",
+    "trg_fin_cuenta_financiera_mapeo_update",
+    "trg_fin_eventos_no_delete",
+    "trg_fin_eventos_no_update",
+    "trg_fin_lineas_no_delete",
+    "trg_fin_lineas_no_update",
+    "trg_fin_participacion_sin_solape_insert",
+    "trg_fin_participacion_sin_solape_update",
+    "trg_fin_tesoreria_no_delete",
+    "trg_fin_tesoreria_no_update"
+  ]);
 });
 
 test("la creación de la fundación se revierte por completo si falla una etapa posterior", () => {
