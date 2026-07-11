@@ -98,15 +98,15 @@ export const listarVentasPendientes = () =>
 export const obtenerVenta = (id) =>
   client.get(`/ventas/${id}`).then((r) => r.data);
 
-export const crearVenta = (data) =>
-  client.post("/ventas", data).then((r) => r.data);
+export const crearVenta = (data, idempotencyKey) =>
+  client.post("/ventas", data, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined }).then((r) => r.data);
 
-export const registrarPago = (id, pagos, turnoCajaId) =>
+export const registrarPago = (id, pagos, turnoCajaId, idempotencyKey) =>
   client
     .post(`/ventas/${id}/pagos`, {
       pagos,
       turno_caja_id: turnoCajaId || undefined,
-    })
+    }, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined })
     .then((r) => r.data);
 
 export const registrarPagoVenta = (id, data) =>
