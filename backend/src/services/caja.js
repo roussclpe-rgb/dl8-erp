@@ -27,7 +27,8 @@ function limiteTurno(turno) { return turno.fecha_cierre || new Date().toISOStrin
 function movimientosTurno(turnoId) { const turno = db.prepare('SELECT * FROM turnos_caja WHERE id=?').get(turnoId); if (!turno) throw fallo('Turno no existe', 404); const caja = cajaConfigurada(turno.caja_id); return db.prepare(`SELECT m.id, a.fecha, e.tipo, e.descripcion motivo, m.importe_minor, u.nombre usuario_nombre, 'financiero' origen
   FROM fin_movimientos_tesoreria m JOIN fin_asientos_contables a ON a.id=(SELECT asiento_id FROM fin_lineas_asiento WHERE id=m.linea_asiento_id)
   JOIN fin_eventos_financieros e ON e.id=m.evento_id JOIN usuarios u ON u.id=e.creado_por
-  WHERE m.cuenta_financiera_id=? AND date(a.fecha)>=date(?) AND date(a.fecha)<=date(?) ORDER BY a.fecha,m.id`).all(caja.cuenta_financiera_id,turno.fecha_apertura,limiteTurno(turno)).map(m=>({...m,monto:aMonto(m.importe_minor)})); }
+  LEFT JOIN fin_cobros co ON co.evento_financiero_id=e.id
+  WHERE m.cuenta_financiera_id=? AND ((co.id IS NOT NULL AND co.turno_caja_id=?) OR (co.id IS NULL AND date(a.fecha)>=date(?) AND date(a.fecha)<=date(?))) ORDER BY a.fecha,m.id`).all(caja.cuenta_financiera_id,turno.id,turno.fecha_apertura,limiteTurno(turno)).map(m=>({...m,monto:aMonto(m.importe_minor)})); }
 function efectivoEsperado(turnoId) { return movimientosTurno(turnoId).reduce((total,m)=>total+m.importe_minor,0); }
 function resumenTurno(turnoId) { const movimientos = movimientosTurno(turnoId); let totalIngresos=0,totalEgresos=0; for(const m of movimientos){if(m.importe_minor>=0)totalIngresos+=m.importe_minor;else totalEgresos+=-m.importe_minor;} return {movimientos,totalIngresos:aMonto(totalIngresos),totalEgresos:aMonto(totalEgresos),porMetodo:{Efectivo:aMonto(totalIngresos-totalEgresos)}}; }
 

@@ -96,13 +96,87 @@ CREATE TRIGGER IF NOT EXISTS trg_fin_participacion_sin_solape_insert BEFORE INSE
   SELECT CASE WHEN (COALESCE((SELECT SUM(COALESCE(porcentaje_minor,0)) FROM fin_participaciones WHERE entidad_id = NEW.entidad_id AND estado = 'activa'),0) + COALESCE(NEW.porcentaje_minor,0)) > 10000 THEN RAISE(ABORT, 'Las participaciones activas no pueden superar 10000') END;
 END;
 -- Motor transaccional MVP 2
-CREATE TABLE IF NOT EXISTS fin_eventos_financieros (id INTEGER PRIMARY KEY AUTOINCREMENT, entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), tipo TEXT NOT NULL CHECK(tipo IN ('saldo_inicial','transferencia_interna','reasignacion_bolsillo','ingreso_caja','egreso_caja','ajuste_conciliacion','cobro_venta','reversion')), estado TEXT NOT NULL DEFAULT 'confirmado' CHECK(estado='confirmado'), fecha TEXT NOT NULL, moneda TEXT NOT NULL DEFAULT 'PEN' CHECK(moneda='PEN'), descripcion TEXT NOT NULL, reversion_de_id INTEGER UNIQUE REFERENCES fin_eventos_financieros(id), creado_por INTEGER NOT NULL REFERENCES usuarios(id), creado_en TEXT NOT NULL DEFAULT(datetime('now')));
+CREATE TABLE IF NOT EXISTS fin_eventos_financieros (id INTEGER PRIMARY KEY AUTOINCREMENT, entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), tipo TEXT NOT NULL CHECK(tipo IN ('saldo_inicial','transferencia_interna','reasignacion_bolsillo','ingreso_caja','egreso_caja','ajuste_conciliacion','cobro_venta','emision_venta','reversion')), estado TEXT NOT NULL DEFAULT 'confirmado' CHECK(estado='confirmado'), fecha TEXT NOT NULL, moneda TEXT NOT NULL DEFAULT 'PEN' CHECK(moneda='PEN'), descripcion TEXT NOT NULL, reversion_de_id INTEGER UNIQUE REFERENCES fin_eventos_financieros(id), creado_por INTEGER NOT NULL REFERENCES usuarios(id), creado_en TEXT NOT NULL DEFAULT(datetime('now')));
 CREATE TABLE IF NOT EXISTS fin_eventos_por_entidad (id INTEGER PRIMARY KEY AUTOINCREMENT, evento_id INTEGER NOT NULL REFERENCES fin_eventos_financieros(id), entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), UNIQUE(evento_id, entidad_id));
 CREATE TABLE IF NOT EXISTS fin_asientos_contables (id INTEGER PRIMARY KEY AUTOINCREMENT, evento_id INTEGER NOT NULL UNIQUE REFERENCES fin_eventos_financieros(id), entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), periodo_id INTEGER NOT NULL REFERENCES fin_periodos(id), fecha TEXT NOT NULL, estado TEXT NOT NULL DEFAULT 'confirmado' CHECK(estado='confirmado'), glosa TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fin_lineas_asiento (id INTEGER PRIMARY KEY AUTOINCREMENT, asiento_id INTEGER NOT NULL REFERENCES fin_asientos_contables(id), cuenta_contable_id INTEGER NOT NULL REFERENCES fin_plan_cuentas(id), cuenta_financiera_id INTEGER REFERENCES fin_cuentas_financieras(id), debe_minor INTEGER NOT NULL DEFAULT 0 CHECK(debe_minor>=0), haber_minor INTEGER NOT NULL DEFAULT 0 CHECK(haber_minor>=0), CHECK((debe_minor>0 AND haber_minor=0) OR (haber_minor>0 AND debe_minor=0)));
 CREATE TABLE IF NOT EXISTS fin_movimientos_tesoreria (id INTEGER PRIMARY KEY AUTOINCREMENT, evento_id INTEGER NOT NULL REFERENCES fin_eventos_financieros(id), linea_asiento_id INTEGER NOT NULL UNIQUE REFERENCES fin_lineas_asiento(id), cuenta_financiera_id INTEGER NOT NULL REFERENCES fin_cuentas_financieras(id), importe_minor INTEGER NOT NULL CHECK(importe_minor<>0), moneda TEXT NOT NULL DEFAULT 'PEN' CHECK(moneda='PEN'));
 CREATE TABLE IF NOT EXISTS fin_asignaciones_bolsillo (id INTEGER PRIMARY KEY AUTOINCREMENT, evento_id INTEGER NOT NULL REFERENCES fin_eventos_financieros(id), cuenta_origen_id INTEGER REFERENCES fin_cuentas_financieras(id), bolsillo_origen_id INTEGER REFERENCES fin_bolsillos(id), cuenta_destino_id INTEGER REFERENCES fin_cuentas_financieras(id), bolsillo_destino_id INTEGER REFERENCES fin_bolsillos(id), importe_minor INTEGER NOT NULL CHECK(importe_minor>0), moneda TEXT NOT NULL DEFAULT 'PEN' CHECK(moneda='PEN'), CHECK(cuenta_origen_id IS NOT NULL OR cuenta_destino_id IS NOT NULL));
 CREATE TABLE IF NOT EXISTS fin_claves_idempotencia (id INTEGER PRIMARY KEY AUTOINCREMENT, entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), clave TEXT NOT NULL, hash_payload TEXT NOT NULL, evento_id INTEGER REFERENCES fin_eventos_financieros(id), UNIQUE(entidad_id, clave));
+CREATE TABLE IF NOT EXISTS fin_documentos_cxc (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id),
+  venta_id INTEGER NOT NULL UNIQUE REFERENCES ventas(id),
+  cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+  tipo_documento TEXT NOT NULL DEFAULT 'venta' CHECK(tipo_documento = 'venta'),
+  fecha_emision TEXT NOT NULL,
+  fecha_vencimiento TEXT,
+  moneda TEXT NOT NULL DEFAULT 'PEN' CHECK(moneda = 'PEN'),
+  importe_original_minor INTEGER NOT NULL CHECK(importe_original_minor >= 0),
+  estado TEXT NOT NULL DEFAULT 'abierta' CHECK(estado IN ('abierta','parcial','pagada','anulada')),
+  evento_emision_id INTEGER NOT NULL UNIQUE REFERENCES fin_eventos_financieros(id),
+  creado_por INTEGER NOT NULL REFERENCES usuarios(id),
+  creado_en TEXT NOT NULL DEFAULT(datetime('now')),
+  CHECK(fecha_vencimiento IS NULL OR fecha_vencimiento >= fecha_emision)
+);
+CREATE INDEX IF NOT EXISTS idx_fin_documentos_cxc_entidad_estado ON fin_documentos_cxc(entidad_id, estado, fecha_emision);
+CREATE TABLE IF NOT EXISTS fin_cobros (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id),
+  pago_id INTEGER NOT NULL UNIQUE REFERENCES pagos(id),
+  documento_cxc_id INTEGER NOT NULL REFERENCES fin_documentos_cxc(id),
+  evento_financiero_id INTEGER NOT NULL UNIQUE REFERENCES fin_eventos_financieros(id),
+  cuenta_financiera_id INTEGER NOT NULL REFERENCES fin_cuentas_financieras(id),
+  bolsillo_id INTEGER NOT NULL REFERENCES fin_bolsillos(id),
+  turno_caja_id INTEGER REFERENCES turnos_caja(id),
+  metodo_pago TEXT NOT NULL CHECK(metodo_pago IN ('Efectivo','Yape','Plin','Transferencia','Tarjeta')),
+  importe_minor INTEGER NOT NULL CHECK(importe_minor > 0),
+  fecha TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'confirmado' CHECK(estado IN ('confirmado','revertido')),
+  creado_por INTEGER NOT NULL REFERENCES usuarios(id),
+  creado_en TEXT NOT NULL DEFAULT(datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS fin_aplicaciones_cxc (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  documento_cxc_id INTEGER NOT NULL REFERENCES fin_documentos_cxc(id),
+  cobro_id INTEGER NOT NULL UNIQUE REFERENCES fin_cobros(id),
+  evento_financiero_id INTEGER NOT NULL REFERENCES fin_eventos_financieros(id),
+  importe_minor INTEGER NOT NULL CHECK(importe_minor > 0),
+  fecha_aplicacion TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'confirmada' CHECK(estado IN ('confirmada','revertida')),
+  creado_por INTEGER NOT NULL REFERENCES usuarios(id),
+  creado_en TEXT NOT NULL DEFAULT(datetime('now')),
+  UNIQUE(documento_cxc_id, evento_financiero_id)
+);
+CREATE TRIGGER IF NOT EXISTS trg_fin_documentos_cxc_integridad BEFORE INSERT ON fin_documentos_cxc BEGIN
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM ventas v WHERE v.id=NEW.venta_id AND v.cliente_id=NEW.cliente_id) THEN RAISE(ABORT,'La CxC no coincide con la venta y el cliente') END;
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_eventos_financieros e WHERE e.id=NEW.evento_emision_id AND e.entidad_id=NEW.entidad_id AND e.tipo='emision_venta') THEN RAISE(ABORT,'El evento de emisión no pertenece a la entidad') END;
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM fin_movimientos_tesoreria WHERE evento_id=NEW.evento_emision_id) THEN RAISE(ABORT,'La emisión de CxC no puede mover tesorería') END;
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_lineas_asiento l JOIN fin_asientos_contables a ON a.id=l.asiento_id JOIN fin_plan_cuentas pc ON pc.id=l.cuenta_contable_id WHERE a.evento_id=NEW.evento_emision_id AND pc.entidad_id=NEW.entidad_id AND pc.codigo='1201' AND l.debe_minor=NEW.importe_original_minor AND l.haber_minor=0) THEN RAISE(ABORT,'La emisión no debita 1201 por el importe de la CxC') END;
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_lineas_asiento l JOIN fin_asientos_contables a ON a.id=l.asiento_id JOIN fin_plan_cuentas pc ON pc.id=l.cuenta_contable_id WHERE a.evento_id=NEW.evento_emision_id AND pc.entidad_id=NEW.entidad_id AND pc.codigo='4101' AND l.debe_minor=0 AND l.haber_minor=NEW.importe_original_minor) THEN RAISE(ABORT,'La emisión no acredita 4101 por el importe de la CxC') END;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fin_cobros_integridad BEFORE INSERT ON fin_cobros BEGIN
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_documentos_cxc d JOIN pagos p ON p.id=NEW.pago_id WHERE d.id=NEW.documento_cxc_id AND d.entidad_id=NEW.entidad_id AND p.venta_id=d.venta_id) THEN RAISE(ABORT,'El cobro no coincide con la venta y la CxC') END;
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_eventos_financieros e WHERE e.id=NEW.evento_financiero_id AND e.entidad_id=NEW.entidad_id AND e.tipo='cobro_venta') THEN RAISE(ABORT,'El evento de cobro no pertenece a la entidad') END;
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_cuentas_financieras c WHERE c.id=NEW.cuenta_financiera_id AND c.entidad_id=NEW.entidad_id AND c.estado='activa') THEN RAISE(ABORT,'La cuenta receptora no pertenece a la entidad') END;
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_bolsillos b WHERE b.id=NEW.bolsillo_id AND b.entidad_id=NEW.entidad_id AND b.estado='activa') THEN RAISE(ABORT,'El bolsillo receptor no pertenece a la entidad') END;
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_movimientos_tesoreria m WHERE m.evento_id=NEW.evento_financiero_id AND m.cuenta_financiera_id=NEW.cuenta_financiera_id AND m.importe_minor=NEW.importe_minor) THEN RAISE(ABORT,'El cobro no coincide con tesorería') END;
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_lineas_asiento l JOIN fin_asientos_contables a ON a.id=l.asiento_id JOIN fin_plan_cuentas pc ON pc.id=l.cuenta_contable_id WHERE a.evento_id=NEW.evento_financiero_id AND pc.entidad_id=NEW.entidad_id AND pc.codigo='1201' AND l.debe_minor=0 AND l.haber_minor=NEW.importe_minor) THEN RAISE(ABORT,'El cobro no acredita la cuenta 1201') END;
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_asignaciones_bolsillo a WHERE a.evento_id=NEW.evento_financiero_id AND a.cuenta_destino_id=NEW.cuenta_financiera_id AND a.bolsillo_destino_id=NEW.bolsillo_id AND a.importe_minor=NEW.importe_minor) THEN RAISE(ABORT,'El cobro no coincide con el bolsillo') END;
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_cuentas_financieras c WHERE c.id=NEW.cuenta_financiera_id AND ((NEW.metodo_pago='Efectivo' AND c.tipo='caja') OR (NEW.metodo_pago IN ('Yape','Plin') AND c.tipo='billetera') OR (NEW.metodo_pago='Transferencia' AND c.tipo='banco') OR (NEW.metodo_pago='Tarjeta' AND c.tipo='procesador'))) THEN RAISE(ABORT,'El método no coincide con el tipo de cuenta financiera') END;
+  SELECT CASE WHEN NEW.metodo_pago='Efectivo' AND NOT EXISTS (SELECT 1 FROM turnos_caja t JOIN cajas c ON c.id=t.caja_id WHERE t.id=NEW.turno_caja_id AND t.estado='abierto' AND c.entidad_id=NEW.entidad_id AND c.cuenta_financiera_id=NEW.cuenta_financiera_id) THEN RAISE(ABORT,'El efectivo no coincide con el turno de caja') END;
+  SELECT CASE WHEN NEW.metodo_pago<>'Efectivo' AND NEW.turno_caja_id IS NOT NULL THEN RAISE(ABORT,'Solo el efectivo puede vincularse a un turno de caja') END;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fin_aplicaciones_cxc_integridad BEFORE INSERT ON fin_aplicaciones_cxc BEGIN
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_cobros c WHERE c.id=NEW.cobro_id AND c.documento_cxc_id=NEW.documento_cxc_id AND c.evento_financiero_id=NEW.evento_financiero_id AND c.importe_minor=NEW.importe_minor AND c.estado='confirmado') THEN RAISE(ABORT,'La aplicación no coincide con el cobro') END;
+  SELECT CASE WHEN (COALESCE((SELECT SUM(a.importe_minor) FROM fin_aplicaciones_cxc a WHERE a.documento_cxc_id=NEW.documento_cxc_id AND a.estado='confirmada'),0)+NEW.importe_minor) > (SELECT importe_original_minor FROM fin_documentos_cxc WHERE id=NEW.documento_cxc_id) THEN RAISE(ABORT,'La aplicación supera el saldo de la CxC') END;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fin_cobros_no_update BEFORE UPDATE ON fin_cobros WHEN OLD.estado='confirmado' BEGIN SELECT RAISE(ABORT,'Los cobros confirmados son inmutables; usa una reversión'); END;
+CREATE TRIGGER IF NOT EXISTS trg_fin_cobros_no_delete BEFORE DELETE ON fin_cobros BEGIN SELECT RAISE(ABORT,'Los cobros no se eliminan'); END;
+CREATE TRIGGER IF NOT EXISTS trg_fin_aplicaciones_no_update BEFORE UPDATE ON fin_aplicaciones_cxc WHEN OLD.estado='confirmada' BEGIN SELECT RAISE(ABORT,'Las aplicaciones confirmadas son inmutables; usa una reversión'); END;
+CREATE TRIGGER IF NOT EXISTS trg_fin_aplicaciones_no_delete BEFORE DELETE ON fin_aplicaciones_cxc BEGIN SELECT RAISE(ABORT,'Las aplicaciones no se eliminan'); END;
+CREATE TRIGGER IF NOT EXISTS trg_pagos_cxc_no_update BEFORE UPDATE ON pagos WHEN OLD.cobro_id IS NOT NULL BEGIN SELECT RAISE(ABORT,'Los pagos vinculados a CxC son inmutables'); END;
+CREATE TRIGGER IF NOT EXISTS trg_pagos_cxc_no_delete BEFORE DELETE ON pagos WHEN OLD.cobro_id IS NOT NULL BEGIN SELECT RAISE(ABORT,'Los pagos vinculados a CxC no se eliminan'); END;
 CREATE INDEX IF NOT EXISTS idx_fin_eventos_entidad_fecha ON fin_eventos_financieros(entidad_id, fecha, id);
 DROP TRIGGER IF EXISTS trg_fin_eventos_no_update;
 CREATE TRIGGER trg_fin_eventos_no_update BEFORE UPDATE ON fin_eventos_financieros BEGIN SELECT RAISE(ABORT,'Los eventos confirmados son inmutables; usa una reversión'); END;

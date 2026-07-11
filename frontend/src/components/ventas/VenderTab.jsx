@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useForm, Controller, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -33,11 +33,14 @@ import {
   crearVenta,
   listarVentas,
   anularVenta,
+  listarEntidadesFinancieras,
+  listarCuentasFinancieras,
 } from "../../api/endpoints";
 
-const METODOS_PAGO = ["Efectivo", "Yape", "Transferencia", "Tarjeta"];
+const METODOS_PAGO = ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta"];
 
 const schema = z.object({
+  entidad_id: z.coerce.number().positive("Selecciona una entidad económica"),
   cliente_id: z.number({ required_error: "Selecciona un cliente" }),
   fecha: z.string().min(1),
   items: z
@@ -49,14 +52,16 @@ const schema = z.object({
     )
     .min(1, "Agrega al menos un producto"),
   pagos: z.array(
-    z.object({
-      monto: z.coerce.number().positive("Monto inválido"),
-      metodoPago: z.string().min(1),
+      z.object({
+        monto: z.coerce.number().positive("Monto inválido"),
+        metodoPago: z.string().min(1),
+        cuenta_financiera_id: z.coerce.number().positive().optional().or(z.literal("")),
     })
   ),
 });
 
 const defaultValues = {
+  entidad_id: "",
   cliente_id: undefined,
   fecha: dayjs().format("YYYY-MM-DD"),
   items: [{ receta_grupo_id: undefined, cantidad: 1 }],
@@ -67,8 +72,11 @@ export default function VenderTab() {
   const { hasRole } = useAuth();
   const notify = useNotify();
   const { turno } = useCajaActiva();
+  const idempotencyKeyRef = useRef(null);
 
   const [clientes, setClientes] = useState([]);
+  const [entidades, setEntidades] = useState([]);
+  const [cuentasFinancieras, setCuentasFinancieras] = useState([]);
   const [productos, setProductos] = useState([]);
   const [ventas, setVentas] = useState([]);
   const [loadingVentas, setLoadingVentas] = useState(true);
@@ -90,12 +98,19 @@ export default function VenderTab() {
 
   const watchItems = watch("items");
   const watchPagos = watch("pagos");
+  const entidadId = watch("entidad_id");
+
+  useEffect(() => {
+    if (!entidadId) return setCuentasFinancieras([]);
+    listarCuentasFinancieras(entidadId).then(setCuentasFinancieras).catch(() => setCuentasFinancieras([]));
+  }, [entidadId]);
 
   const cargarBase = useCallback(async () => {
     try {
-      const [c, p] = await Promise.all([listarClientes(), listarProductosVenta()]);
+      const [c, p, e] = await Promise.all([listarClientes(), listarProductosVenta(), listarEntidadesFinancieras()]);
       setClientes(c);
       setProductos(p);
+      setEntidades(e);
     } catch (e) {
       notify.error(e);
     }
@@ -134,11 +149,13 @@ export default function VenderTab() {
   const onSubmit = async (data) => {
     setSaving(true);
     try {
+      idempotencyKeyRef.current ||= crypto.randomUUID();
       await crearVenta({
       ...data,
       turno_caja_id: turno?.id,
-   });
+   }, idempotencyKeyRef.current);
       notify.success("Venta registrada");
+      idempotencyKeyRef.current = null;
       reset(defaultValues);
       cargarBase();
       cargarVentas();
@@ -208,6 +225,19 @@ export default function VenderTab() {
 
           <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
             <Grid container spacing={2}>
+              <Grid item xs={12} sm={5}>
+                <Controller
+                  name="entidad_id"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField select label="Entidad económica" fullWidth {...field} error={!!errors.entidad_id} helperText={errors.entidad_id?.message}>
+                      {entidades.map((entidad) => (
+                        <MenuItem key={entidad.id} value={entidad.id}>{entidad.nombre}</MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+                />
+              </Grid>
               <Grid item xs={12} sm={7}>
                 <Controller
                   name="cliente_id"
@@ -344,6 +374,21 @@ export default function VenderTab() {
                       )}
                     />
                   </Grid>
+                  {watchPagos?.[index]?.metodoPago !== "Efectivo" && (
+                    <Grid item xs={11} sm={3}>
+                      <Controller
+                        name={`pagos.${index}.cuenta_financiera_id`}
+                        control={control}
+                        render={({ field: f }) => (
+                          <TextField select label="Cuenta receptora" fullWidth {...f}>
+                            {cuentasFinancieras
+                              .filter((cuenta) => ({ Yape: "billetera", Plin: "billetera", Transferencia: "banco", Tarjeta: "procesador" }[watchPagos?.[index]?.metodoPago] === cuenta.tipo))
+                              .map((cuenta) => <MenuItem key={cuenta.id} value={cuenta.id}>{cuenta.nombre}</MenuItem>)}
+                          </TextField>
+                        )}
+                      />
+                    </Grid>
+                  )}
                   <Grid item xs={1}>
                     <IconButton size="small" onClick={() => pagosArray.remove(index)}>
                       <DeleteIcon fontSize="small" />
@@ -355,7 +400,7 @@ export default function VenderTab() {
             <Button
               size="small"
               startIcon={<AddIcon />}
-              onClick={() => pagosArray.append({ monto: "", metodoPago: "Efectivo" })}
+              onClick={() => pagosArray.append({ monto: "", metodoPago: "Efectivo", cuenta_financiera_id: "" })}
               sx={{ mt: 1 }}
             >
               Agregar pago

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useForm, useFieldArray, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -12,9 +12,9 @@ import FormDialog from "../FormDialog";
 import { useAuth } from "../../context/AuthContext";
 import { useNotify } from "../../hooks/useNotify";
 import { useCajaActiva } from "../../hooks/useCajaActiva";
-import { listarVentasPendientes, registrarPago } from "../../api/endpoints";
+import { listarVentasPendientes, registrarPago, listarCuentasFinancieras } from "../../api/endpoints";
 
-const METODOS_PAGO = ["Efectivo", "Yape", "Transferencia", "Tarjeta"];
+const METODOS_PAGO = ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta"];
 
 const schema = z.object({
   pagos: z
@@ -22,6 +22,7 @@ const schema = z.object({
       z.object({
         monto: z.coerce.number().positive("Monto inválido"),
         metodoPago: z.string().min(1),
+        cuenta_financiera_id: z.coerce.number().positive().optional().or(z.literal("")),
       })
     )
     .min(1, "Agrega al menos un pago"),
@@ -31,16 +32,19 @@ export default function PorCobrarTab() {
   const { hasRole } = useAuth();
   const notify = useNotify();
   const { turno } = useCajaActiva();
+  const idempotencyKeyRef = useRef(null);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cobrando, setCobrando] = useState(null); // venta seleccionada para cobrar
   const [saving, setSaving] = useState(false);
+  const [cuentasFinancieras, setCuentasFinancieras] = useState([]);
 
-  const { control, register, handleSubmit, reset, formState: { errors } } = useForm({
+  const { control, register, handleSubmit, reset, watch, formState: { errors } } = useForm({
     resolver: zodResolver(schema),
     defaultValues: { pagos: [{ monto: "", metodoPago: "Efectivo" }] },
   });
   const pagosArray = useFieldArray({ control, name: "pagos" });
+  const watchPagos = watch("pagos");
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -57,16 +61,22 @@ export default function PorCobrarTab() {
     cargar();
   }, [cargar]);
 
-  const abrirCobro = (venta) => {
+  const abrirCobro = async (venta) => {
+    idempotencyKeyRef.current = crypto.randomUUID();
     setCobrando(venta);
-    reset({ pagos: [{ monto: venta.saldo, metodoPago: "Efectivo" }] });
+    reset({ pagos: [{ monto: venta.saldo, metodoPago: "Efectivo", cuenta_financiera_id: "" }] });
+    if (!venta.historico && venta.entidad_id) {
+      try { setCuentasFinancieras(await listarCuentasFinancieras(venta.entidad_id)); } catch { setCuentasFinancieras([]); }
+    } else setCuentasFinancieras([]);
   };
 
   const onSubmit = async (data) => {
     setSaving(true);
     try {
-      await registrarPago(cobrando.id, data.pagos, turno?.id);
+      idempotencyKeyRef.current ||= crypto.randomUUID();
+      await registrarPago(cobrando.id, data.pagos, turno?.id, idempotencyKeyRef.current);
       notify.success("Cobro registrado");
+      idempotencyKeyRef.current = null;
       setCobrando(null);
       cargar();
     } catch (e) {
@@ -82,6 +92,7 @@ export default function PorCobrarTab() {
     { field: "folio", headerName: "Folio", minWidth: 80 },
     { field: "fecha", headerName: "Fecha" },
     { field: "cliente_nombre", headerName: "Cliente", minWidth: 160 },
+    { field: "origen", headerName: "Origen", renderCell: (r) => r.historico ? <Chip size="small" label="Histórico" variant="outlined" /> : <Chip size="small" label={r.estado_cxc} color={r.estado_cxc === "parcial" ? "warning" : "default"} /> },
     { field: "total", headerName: "Total", renderCell: (r) => `S/ ${r.total.toFixed(2)}` },
     { field: "saldo", headerName: "Saldo", renderCell: (r) => <Chip size="small" color="warning" label={`S/ ${r.saldo.toFixed(2)}`} /> },
     {
@@ -117,7 +128,7 @@ export default function PorCobrarTab() {
                       />
                     ) : (
                       <Alert severity="warning" sx={{ mb: 2 }}>
-                        No tienes una caja abierta. El cobro se registrará igual, pero no aparecerá en ningún arqueo.
+                        No tienes una caja abierta. El efectivo no estará disponible; usa una cuenta financiera para otro medio.
                       </Alert>
                     )}
           <Stack spacing={2}>
@@ -149,6 +160,21 @@ export default function PorCobrarTab() {
                     )}
                   />
                 </Grid>
+                {watchPagos?.[index]?.metodoPago !== "Efectivo" && !cobrando?.historico && (
+                  <Grid item xs={11} sm={5}>
+                    <Controller
+                      name={`pagos.${index}.cuenta_financiera_id`}
+                      control={control}
+                      render={({ field: f }) => (
+                        <TextField select label="Cuenta receptora" fullWidth {...f}>
+                          {cuentasFinancieras
+                            .filter((cuenta) => ({ Yape: "billetera", Plin: "billetera", Transferencia: "banco", Tarjeta: "procesador" }[watchPagos?.[index]?.metodoPago] === cuenta.tipo))
+                            .map((cuenta) => <MenuItem key={cuenta.id} value={cuenta.id}>{cuenta.nombre}</MenuItem>)}
+                        </TextField>
+                      )}
+                    />
+                  </Grid>
+                )}
                 <Grid item xs={1}>
                   <IconButton size="small" onClick={() => pagosArray.remove(index)} disabled={pagosArray.fields.length === 1}>
                     <DeleteIcon fontSize="small" />
@@ -157,7 +183,7 @@ export default function PorCobrarTab() {
               </Grid>
             ))}
           </Stack>
-          <Button size="small" startIcon={<AddIcon />} onClick={() => pagosArray.append({ monto: "", metodoPago: "Efectivo" })} sx={{ mt: 1 }}>
+          <Button size="small" startIcon={<AddIcon />} onClick={() => pagosArray.append({ monto: "", metodoPago: "Efectivo", cuenta_financiera_id: "" })} sx={{ mt: 1 }}>
             Agregar otro método
           </Button>
 

@@ -38,10 +38,33 @@ if (!columnaExiste("cajas", "cuenta_financiera_id")) {
 if (!columnaExiste("pagos", "evento_financiero_id")) {
   db.exec("ALTER TABLE pagos ADD COLUMN evento_financiero_id INTEGER REFERENCES fin_eventos_financieros(id)");
 }
+if (!columnaExiste("pagos", "cobro_id")) {
+  db.exec("ALTER TABLE pagos ADD COLUMN cobro_id INTEGER REFERENCES fin_cobros(id)");
+}
+if (!columnaExiste("pagos", "aplicacion_cxc_id")) {
+  db.exec("ALTER TABLE pagos ADD COLUMN aplicacion_cxc_id INTEGER REFERENCES fin_aplicaciones_cxc(id)");
+}
+if (!columnaExiste("fin_aplicaciones_cxc", "cobro_id")) {
+  db.exec("ALTER TABLE fin_aplicaciones_cxc ADD COLUMN cobro_id INTEGER REFERENCES fin_cobros(id)");
+}
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pagos_cobro_unico ON pagos(cobro_id) WHERE cobro_id IS NOT NULL");
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pagos_aplicacion_unica ON pagos(aplicacion_cxc_id) WHERE aplicacion_cxc_id IS NOT NULL");
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_aplicacion_cobro_unico ON fin_aplicaciones_cxc(cobro_id) WHERE cobro_id IS NOT NULL");
 db.exec(`
   CREATE TABLE IF NOT EXISTS pagos_claves_idempotencia (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     venta_id INTEGER NOT NULL REFERENCES ventas(id),
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    clave TEXT NOT NULL,
+    hash_payload TEXT NOT NULL,
+    respuesta_json TEXT NOT NULL,
+    creado_en TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(usuario_id, clave)
+  )
+`);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ventas_claves_idempotencia (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
     clave TEXT NOT NULL,
     hash_payload TEXT NOT NULL,

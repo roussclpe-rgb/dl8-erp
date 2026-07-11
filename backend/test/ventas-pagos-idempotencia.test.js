@@ -51,6 +51,7 @@ test('configura una caja histórica y los pagos HTTP son idempotentes y atómico
   response = await pedir(`/api/ventas/${ventaId}/pagos`, 'POST', payload, 'pago-http-1');
   assert.equal(response.status, 200);
   const primero = await response.json();
+  assert.equal(primero.saldo, 38);
   response = await pedir(`/api/ventas/${ventaId}/pagos`, 'POST', payload, 'pago-http-1');
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), primero);

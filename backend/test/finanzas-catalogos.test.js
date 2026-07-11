@@ -49,12 +49,19 @@ test("el esquema financiero es idempotente y crea sus restricciones SQLite", () 
   for (const tabla of tablasConFk) assert.ok(db.prepare(`PRAGMA foreign_key_list(${tabla})`).all().length > 0, `${tabla} debe conservar sus claves foráneas`);
   const triggers = db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'trg_fin_%' ORDER BY name").all().map((r) => r.name);
   assert.deepEqual(triggers, [
+    "trg_fin_aplicaciones_cxc_integridad",
+    "trg_fin_aplicaciones_no_delete",
+    "trg_fin_aplicaciones_no_update",
     "trg_fin_asientos_no_delete",
     "trg_fin_asientos_no_update",
     "trg_fin_asignaciones_no_delete",
     "trg_fin_asignaciones_no_update",
+    "trg_fin_cobros_integridad",
+    "trg_fin_cobros_no_delete",
+    "trg_fin_cobros_no_update",
     "trg_fin_cuenta_financiera_mapeo_insert",
     "trg_fin_cuenta_financiera_mapeo_update",
+    "trg_fin_documentos_cxc_integridad",
     "trg_fin_eventos_no_delete",
     "trg_fin_eventos_no_update",
     "trg_fin_lineas_no_delete",
