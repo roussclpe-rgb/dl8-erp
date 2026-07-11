@@ -10,6 +10,13 @@ db.pragma("foreign_keys = ON");
 const schema = fs.readFileSync(path.join(__dirname, "..", "schema.sql"), "utf8");
 db.exec(schema);
 
+try {
+  const esquemaFinanzas = fs.readFileSync(path.join(__dirname, "..", "finanzas-schema.sql"), "utf8");
+  db.exec(esquemaFinanzas);
+} catch (e) {
+  db.close();
+  throw new Error("No se pudo cargar el esquema financiero. Revisa backend/finanzas-schema.sql.");
+}
 // Asegura que exista el periodo del mes actual (u otro, según fecha) abierto.
 function obtenerOCrearPeriodo(fechaISO) {
   const [anio, mes] = fechaISO.slice(0, 7).split("-").map(Number);
