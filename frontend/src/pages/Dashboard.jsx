@@ -17,7 +17,7 @@ import MetricCard from "../components/ui/MetricCard";
 import { useNotify } from "../hooks/useNotify";
 import { useAuth } from "../context/AuthContext";
 import { formatoFecha, formatoMoneda, formatoNumero } from "../utils/format";
-import { listarDocumentosCxP, listarEntidadesFinancieras, listarIngredientes, listarProducciones, listarVentas, listarVentasPendientes, reporteSugerenciasCompra, reporteValorizacion } from "../api/endpoints";
+import { listarDocumentosCxP, listarEntidadesFinancieras, listarIngredientes, listarProducciones, listarVentas, listarVentasPendientes, reporteSugerenciasCompra, reporteValorizacion, saldoCajaFinanciera, saldosTesoreria, utilidadPeriodoActual } from "../api/endpoints";
 
 const numero = (valor) => Number(valor || 0);
 const hoy = new Date().toISOString().slice(0, 10);
@@ -36,6 +36,7 @@ export default function Dashboard() {
   const { usuario } = useAuth();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ ventas: [], cxc: [], cxp: [], ingredientes: [], producciones: [], sugerencias: [], inventario: { valorTotal: 0 } });
+  const [finanzas, setFinanzas] = useState({ caja: 0, yape: 0, banco: 0, utilidad: 0 });
 
   useEffect(() => {
     let activo = true;
@@ -46,6 +47,7 @@ export default function Dashboard() {
           listarVentas(), listarVentasPendientes(), listarIngredientes(), listarProducciones(), reporteSugerenciasCompra(), reporteValorizacion(), listarEntidadesFinancieras(),
         ]);
         const documentos = await Promise.all((entidades || []).map((entidad) => listarDocumentosCxP({ entidad_id: entidad.id }).catch(() => [])));
+        if (entidades?.[0]) { const [caja, cuentas, utilidad] = await Promise.all([saldoCajaFinanciera(entidades[0].id), saldosTesoreria(entidades[0].id), utilidadPeriodoActual(entidades[0].id)]); setFinanzas({ caja: caja.saldo_minor, yape: cuentas.filter((c) => c.tipo === 'billetera' && c.proveedor === 'yape').reduce((n, c) => n + c.saldo_minor, 0), banco: cuentas.filter((c) => c.tipo === 'banco').reduce((n, c) => n + c.saldo_minor, 0), utilidad: utilidad.utilidad_minor }); }
         if (activo) setData({ ventas: ventas || [], cxc: cxc || [], cxp: documentos.flat(), ingredientes: ingredientes || [], producciones: producciones || [], sugerencias: sugerencias || [], inventario: inventario || { valorTotal: 0 } });
       } catch (error) {
         notifyError(error);
@@ -73,10 +75,10 @@ export default function Dashboard() {
 
     <Grid container spacing={2} sx={{ mb: 2 }}>
       <Grid item xs={12} sm={6} lg={3}><MetricCard label="Ventas de hoy" value={formatoMoneda(resumen.totalVentasHoy)} helper={`${resumen.operacionesHoy} operaciones registradas`} icon={<PointOfSaleIcon />} loading={loading} /></Grid>
-      <Grid item xs={12} sm={6} lg={3}><MetricCard label="Utilidad" icon={<TrendingUpIcon />} tone="green" unavailable loading={loading} /></Grid>
-      <Grid item xs={12} sm={6} lg={3}><MetricCard label="Caja" icon={<AccountBalanceWalletIcon />} tone="teal" unavailable loading={loading} /></Grid>
-      <Grid item xs={12} sm={6} lg={3}><MetricCard label="Yape" icon={<AccountBalanceWalletIcon />} tone="teal" unavailable loading={loading} /></Grid>
-      <Grid item xs={12} sm={6} lg={3}><MetricCard label="Banco" icon={<AccountBalanceIcon />} tone="indigo" unavailable loading={loading} /></Grid>
+      <Grid item xs={12} sm={6} lg={3}><MetricCard label="Utilidad" value={formatoMoneda(finanzas.utilidad / 100)} icon={<TrendingUpIcon />} tone="green" loading={loading} /></Grid>
+      <Grid item xs={12} sm={6} lg={3}><MetricCard label="Caja" value={formatoMoneda(finanzas.caja / 100)} icon={<AccountBalanceWalletIcon />} tone="teal" loading={loading} /></Grid>
+      <Grid item xs={12} sm={6} lg={3}><MetricCard label="Yape" value={formatoMoneda(finanzas.yape / 100)} icon={<AccountBalanceWalletIcon />} tone="teal" loading={loading} /></Grid>
+      <Grid item xs={12} sm={6} lg={3}><MetricCard label="Banco" value={formatoMoneda(finanzas.banco / 100)} icon={<AccountBalanceIcon />} tone="indigo" loading={loading} /></Grid>
       <Grid item xs={12} sm={6} lg={3}><MetricCard label="CxC pendiente" value={formatoMoneda(resumen.saldoCxC)} helper={`${data.cxc.length} documentos pendientes`} icon={<ReceiptLongIcon />} tone="amber" loading={loading} /></Grid>
       <Grid item xs={12} sm={6} lg={3}><MetricCard label="CxP pendiente" value={formatoMoneda(resumen.saldoCxP)} helper={`${data.cxp.length} documentos por pagar`} icon={<ShoppingCartIcon />} tone="red" loading={loading} /></Grid>
       <Grid item xs={12} sm={6} lg={3}><MetricCard label="Producción del mes" value={formatoNumero(resumen.produccionMes)} helper="Registros de producción" icon={<PrecisionManufacturingIcon />} tone="teal" loading={loading} /></Grid>
