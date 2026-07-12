@@ -4,9 +4,19 @@ const cors = require("cors");
 
 const app = express();
 
-// CORS_ORIGINS vacío = abierto (cómodo en desarrollo local).
-// En producción, define CORS_ORIGINS en .env con dominios separados por coma.
-const origenes = (process.env.CORS_ORIGINS || "").split(",").map((o) => o.trim()).filter(Boolean);
+const origenes = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const esDesarrollo = process.env.NODE_ENV === "development";
+
+if (origenes.length === 0 && !esDesarrollo) {
+  throw new Error(
+    "CORS_ORIGINS no está configurado. Define los dominios permitidos en el archivo .env."
+  );
+}
+
 app.use(cors(origenes.length ? { origin: origenes } : {}));
 
 app.use(express.json());

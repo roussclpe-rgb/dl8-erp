@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
+    "dev:pruebas": "set NODE_ENV=development&& set DB_PATH=data_pruebas.sqlite&& node --watch src/server.js",
+    "dev:negocio": "set NODE_ENV=production&& set DB_PATH=data.sqlite&& node --watch src/server.js",
     "crear-admin": "node src/crearAdmin.js"
   },
   "dependencies": {

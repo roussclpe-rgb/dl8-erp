@@ -23,3 +23,25 @@ test('la reversión referencia al original sin actualizar eventos confirmados',(
   assert.equal(motor.eventos(x.e.id).find(e=>e.id===original.id).estado,'revertido');
   assert.throws(()=>db.prepare("UPDATE fin_eventos_financieros SET descripcion='cambio' WHERE id=?").run(original.id),/inmutables/);
 });
+
+test('aporte y préstamo recibido no se registran como utilidad operativa',()=>{
+  const x=base('M10');
+  const aporte=motor.aporteSocio(x.e.id,admin,'ap1',{cuenta_financiera_id:x.c1.id,bolsillo_id:x.b,importe_minor:10000,fecha:'2026-07-01'});
+  const prestamo=motor.prestamoRecibido(x.e.id,admin,'pr1',{cuenta_financiera_id:x.c1.id,bolsillo_id:x.b,importe_minor:5000,fecha:'2026-07-01'});
+  assert.equal(db.prepare('SELECT tipo FROM fin_eventos_financieros WHERE id=?').get(aporte.id).tipo,'aporte_socio');
+  assert.equal(db.prepare('SELECT tipo FROM fin_eventos_financieros WHERE id=?').get(prestamo.id).tipo,'prestamo_recibido');
+  assert.equal(motor.saldo(x.c1.id,x.b).tes,15000);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM fin_lineas_asiento l JOIN fin_asientos_contables a ON a.id=l.asiento_id JOIN fin_plan_cuentas p ON p.id=l.cuenta_contable_id WHERE a.evento_id IN(?,?) AND p.codigo='4101'").get(aporte.id,prestamo.id).n,0);
+});
+
+test('dónde está mi dinero concilia ubicación, bolsillos y dinero sin asignar',()=>{
+  const x=base('M11');
+  motor.inicial(x.e.id,admin,'m11',{cuenta_financiera_id:x.c1.id,bolsillo_id:x.b,importe_minor:10000,fecha:'2026-07-01'});
+  motor.reasignar(x.e.id,admin,'m11-r',{cuenta_financiera_id:x.c1.id,bolsillo_origen_id:x.b,bolsillo_destino_id:x.b2.id,importe_minor:4000,fecha:'2026-07-01'});
+  const vista=motor.dondeEstaDinero(x.e.id);
+  assert.equal(vista.conciliacion.saldo_fisico_minor,10000);
+  assert.equal(vista.conciliacion.asignado_minor,10000);
+  assert.equal(vista.conciliacion.diferencia_minor,0);
+  assert.equal(vista.finalidades.find(x=>x.nombre==='sin_asignar').saldo_minor,6000);
+  assert.ok(vista.alertas.some(x=>x.tipo==='sin_asignar'));
+});

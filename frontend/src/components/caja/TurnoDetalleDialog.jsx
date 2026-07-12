@@ -6,7 +6,7 @@ import DataTable from "../DataTable";
 import StatusChip from "../StatusChip";
 import { useNotify } from "../../hooks/useNotify";
 import { formatoMoneda, formatoFecha } from "../../utils/format";
-import { obtenerTurnoCaja } from "../../api/endpoints";
+import { listarMovimientosCaja, obtenerTurnoCaja } from "../../api/endpoints";
 
 const TIPO_LABEL = { apertura: "Apertura", venta: "Venta", cobro: "Cobro", ingreso: "Ingreso", egreso: "Egreso", cierre: "Cierre" };
 const TIPO_TONO = { apertura: "info", venta: "success", cobro: "success", ingreso: "success", egreso: "warning", cierre: "default" };
@@ -22,8 +22,8 @@ export default function TurnoDetalleDialog({ turnoId, onClose }) {
       return;
     }
     setLoading(true);
-    obtenerTurnoCaja(turnoId)
-      .then(setTurno)
+    Promise.all([obtenerTurnoCaja(turnoId), listarMovimientosCaja(turnoId)])
+      .then(([detalle, movimientos]) => setTurno({ ...detalle, movimientos }))
       .catch((e) => notify.error(e))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -28,7 +28,11 @@ router.get("/", (req, res) => {
 
 router.post("/", requireRole("admin", "operador"), (req, res) => {
   const { grupo_receta_id, produccion_id, cantidad, motivo, fecha } = req.body;
-  if (!cantidad || cantidad <= 0 || !motivo?.trim()) return res.status(400).json({ error: "Cantidad y motivo son obligatorios" });
+  if (!(Number(cantidad) > 0) || !motivo?.trim()) {
+  return res.status(400).json({
+    error: "Cantidad y motivo son obligatorios"
+  });
+}
 
   let periodo;
   try {

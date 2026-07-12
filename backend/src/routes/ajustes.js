@@ -24,9 +24,11 @@ router.post("/", requireRole("admin", "operador"), (req, res) => {
   if (!["merma", "uso_externo", "sobra"].includes(tipo)) {
     return res.status(400).json({ error: "Tipo inválido. Usa: merma, uso_externo o sobra" });
   }
-  if (!cantidad || cantidad <= 0 || !motivo?.trim()) {
-    return res.status(400).json({ error: "Cantidad y motivo son obligatorios" });
-  }
+  if (!(Number(cantidad) > 0) || !motivo?.trim()) {
+  return res.status(400).json({
+    error: "Cantidad y motivo son obligatorios"
+  });
+}
   const ing = db.prepare("SELECT * FROM ingredientes WHERE id = ?").get(ingrediente_id);
   if (!ing) return res.status(400).json({ error: "Ingrediente no existe" });
 

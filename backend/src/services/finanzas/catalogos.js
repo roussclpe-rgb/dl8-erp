@@ -69,6 +69,9 @@ const crearEntidadFundacion = db.transaction(({ codigo, nombre, tipo, fechaInici
 function listarEntidadesParaUsuario(usuarioId) {
   return db.prepare("SELECT e.*, a.rol_financiero FROM fin_entidades_economicas e JOIN fin_accesos_entidad a ON a.entidad_id = e.id WHERE a.usuario_id = ? AND a.estado = 'activa' AND e.estado <> 'inactiva' ORDER BY e.nombre").all(usuarioId);
 }
+function listarPropietarios() {
+  return db.prepare("SELECT * FROM fin_propietarios ORDER BY nombre, id").all();
+}
 function exigirAcceso(entidadId, usuarioId, roles = ROLES_FINANCIEROS) {
   const acceso = db.prepare("SELECT a.*, e.es_personal, e.estado AS entidad_estado FROM fin_accesos_entidad a JOIN fin_entidades_economicas e ON e.id = a.entidad_id WHERE a.usuario_id = ? AND a.entidad_id = ? AND a.estado = 'activa'").get(usuarioId, entidadId);
   if (!acceso || !roles.includes(acceso.rol_financiero)) throw fallo("No tienes acceso financiero a esta entidad", 403);
@@ -158,4 +161,4 @@ const cerrarPeriodo = db.transaction(({ entidadId, periodoId, usuarioId }) => {
   db.prepare("UPDATE fin_periodos SET estado = 'cerrado', cerrado_por = ?, cerrado_en = datetime('now'), actualizado_por = ?, actualizado_en = datetime('now') WHERE id = ?").run(usuarioId, usuarioId, periodoId);
   const despues = db.prepare("SELECT * FROM fin_periodos WHERE id = ?").get(periodoId); auditar({ entidadId, usuarioId, accion: "cerrar_periodo", tabla: "fin_periodos", id: periodoId, antes, despues }); return despues;
 });
-module.exports = { ROLES_FINANCIEROS, crearEntidadFundacion, listarEntidadesParaUsuario, exigirAcceso, crearPropietario, crearParticipacion, crearCuentaPlan, crearCuentaFinanciera, crearBolsillo, otorgarAcceso, cambiarEstadoCatalogo, listarPorEntidad, cerrarPeriodo };
+module.exports = { ROLES_FINANCIEROS, crearEntidadFundacion, listarEntidadesParaUsuario, listarPropietarios, exigirAcceso, crearPropietario, crearParticipacion, crearCuentaPlan, crearCuentaFinanciera, crearBolsillo, otorgarAcceso, cambiarEstadoCatalogo, listarPorEntidad, cerrarPeriodo };

@@ -19,10 +19,35 @@ router.get("/", (req, res) => {
 });
 
 router.post("/", requireRole("admin", "operador"), (req, res) => {
-  const { receta_id, tandas, fecha } = req.body;
+  const {
+  receta_id,
+  tandas,
+  unidades,
+  modo,
+  fecha
+} = req.body;
   const receta = db.prepare("SELECT * FROM recetas WHERE id = ?").get(receta_id);
   if (!receta) return res.status(400).json({ error: "Receta no existe" });
-  if (!tandas || tandas <= 0) return res.status(400).json({ error: "Número de tandas inválido" });
+  
+  let tandasFinales;
+
+if (modo === "unidades") {
+
+  if (!(Number(unidades) > 0)) {
+    return res.status(400).json({ error: "Cantidad de unidades inválida" });
+  }
+
+  tandasFinales = Number(unidades) / Number(receta.unidades_por_tanda);
+
+} else {
+
+  if (!(Number(tandas) > 0)) {
+    return res.status(400).json({ error: "Número de tandas inválido" });
+  }
+
+  tandasFinales = Number(tandas);
+
+}
 
   const items = db.prepare("SELECT * FROM receta_items WHERE receta_id = ?").all(receta_id);
 
@@ -37,7 +62,14 @@ router.post("/", requireRole("admin", "operador"), (req, res) => {
   // de auditoría) vive en una sola transacción: si algo falla a mitad de
   // camino, better-sqlite3 revierte todo automáticamente.
   const crearProduccion = db.transaction(() => {
-    const resultado = calcularProduccion({ receta, items, tandas, fecha, periodoId: periodo.id, usuarioId: req.usuario.id });
+    const resultado = calcularProduccion({
+    receta,
+    items,
+    tandas: tandasFinales,
+    fecha,
+    periodoId: periodo.id,
+    usuarioId: req.usuario.id
+});
 
     const consumosJson = JSON.stringify(resultado.consumosTotales);
     const info = db.prepare(`
@@ -90,7 +122,7 @@ router.put("/:id", requireRole("admin", "operador"), (req, res) => {
   const consumosAnteriores = logConsumo ? JSON.parse(logConsumo.datos_despues) : [];
 
   const receta_id = req.body.receta_id || anterior.receta_id;
-  const tandas = req.body.tandas || anterior.tandas;
+  const tandas = Number(req.body.tandas) || Number(anterior.tandas);
   const fecha = req.body.fecha || anterior.fecha;
   const receta = db.prepare("SELECT * FROM recetas WHERE id = ?").get(receta_id);
   if (!receta) return res.status(400).json({ error: "Receta no existe" });
