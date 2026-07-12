@@ -15,6 +15,7 @@ import AssessmentIcon from "@mui/icons-material/AssessmentOutlined";
 import EventNoteIcon from "@mui/icons-material/EventNoteOutlined";
 import SettingsIcon from "@mui/icons-material/SettingsOutlined";
 import GroupIcon from "@mui/icons-material/GroupOutlined";
+import AccountBalanceIcon from "@mui/icons-material/AccountBalanceOutlined";
 import NotificationsIcon from "@mui/icons-material/NotificationsNoneOutlined";
 import SearchIcon from "@mui/icons-material/Search";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeftOutlined";
@@ -33,7 +34,7 @@ const MENU = [
   { section: "Principal", items: [{ label: "Dashboard", icon: <DashboardIcon />, to: "/" }] },
   { section: "Operación", items: [{ label: "Ingredientes", icon: <Inventory2Icon />, to: "/ingredientes" }, { label: "Proveedores", icon: <LocalShippingIcon />, to: "/proveedores" }, { label: "Compras", icon: <ShoppingCartIcon />, to: "/compras" }, { label: "Ajustes de stock", icon: <TuneIcon />, to: "/ajustes" }, { label: "Ventas", icon: <ShoppingCartIcon />, to: "/ventas" }, { label: "Caja", icon: <PointOfSaleIcon />, to: "/caja" }] },
   { section: "Producción", items: [{ label: "Recetas", icon: <MenuBookIcon />, to: "/recetas" }, { label: "Producciones", icon: <PrecisionManufacturingIcon />, to: "/producciones" }, { label: "Mermas", icon: <DeleteSweepIcon />, to: "/mermas" }] },
-  { section: "Gestión", items: [{ label: "Reportes", icon: <AssessmentIcon />, to: "/reportes" }, { label: "Periodos", icon: <EventNoteIcon />, to: "/periodos" }, { label: "Costos", icon: <SettingsIcon />, to: "/config-costos" }, { label: "Usuarios", icon: <GroupIcon />, to: "/usuarios", roles: ["admin"] }] },
+  { section: "Gestión", items: [{ label: "Reportes", icon: <AssessmentIcon />, to: "/reportes" }, { label: "Finanzas", icon: <AccountBalanceIcon />, to: "/finanzas" }, { label: "Periodos", icon: <EventNoteIcon />, to: "/periodos" }, { label: "Costos", icon: <SettingsIcon />, to: "/config-costos" }, { label: "Usuarios", icon: <GroupIcon />, to: "/usuarios", roles: ["admin"] }] },
 ];
 
 export default function DashboardLayout() {

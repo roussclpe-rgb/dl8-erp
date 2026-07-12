@@ -18,6 +18,7 @@ import ConfigCostosPage from "./pages/ConfigCostosPage";
 import UsuariosPage from "./pages/UsuariosPage";
 import VentasPage from "./pages/VentasPage";
 import CajaPage from "./pages/CajaPage";
+import FinanzasPage from "./pages/FinanzasPage";
 
 export default function App() {
   return (
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="compras" element={<ComprasPage />} />
         <Route path="ventas" element={<VentasPage />} />
         <Route path="caja" element={<CajaPage />} />
+        <Route path="finanzas" element={<FinanzasPage />} />
         <Route path="ajustes" element={<AjustesPage />} />
         <Route path="recetas" element={<RecetasPage />} />
         <Route path="producciones" element={<ProduccionesPage />} />

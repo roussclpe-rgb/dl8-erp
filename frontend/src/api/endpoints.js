@@ -141,6 +141,21 @@ export const configurarCajaFinanciera = (id, data) =>
 export const listarEntidadesFinancieras = () =>
   client.get("/finanzas/entidades").then((r) => r.data);
 
+// ---------- Finanzas ----------
+export const crearEntidadFinanciera = (data) => client.post("/finanzas/entidades", data).then((r) => r.data);
+export const listarPlanCuentas = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/plan-cuentas`).then((r) => r.data);
+export const crearCuentaPlan = (entidadId, data) => client.post(`/finanzas/entidades/${entidadId}/plan-cuentas`, data).then((r) => r.data);
+export const crearCuentaFinanciera = (entidadId, data) => client.post(`/finanzas/entidades/${entidadId}/cuentas-financieras`, data).then((r) => r.data);
+export const crearBolsillo = (entidadId, data) => client.post(`/finanzas/entidades/${entidadId}/bolsillos`, data).then((r) => r.data);
+export const saldosTesoreria = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/saldos/tesoreria`).then((r) => r.data);
+export const saldosBolsillos = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/saldos/bolsillos`).then((r) => r.data);
+export const saldosContables = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/saldos/contables`).then((r) => r.data);
+export const listarEventosFinancieros = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/eventos`).then((r) => r.data);
+export const registrarSaldoInicial = (entidadId, data, key) => client.post(`/finanzas/entidades/${entidadId}/saldos-iniciales`, data, { headers: { "Idempotency-Key": key } }).then((r) => r.data);
+export const registrarTransferenciaFinanciera = (entidadId, data, key) => client.post(`/finanzas/entidades/${entidadId}/transferencias-internas`, data, { headers: { "Idempotency-Key": key } }).then((r) => r.data);
+export const revertirEventoFinanciero = (entidadId, eventoId, key) => client.post(`/finanzas/entidades/${entidadId}/eventos/${eventoId}/reversiones`, {}, { headers: { "Idempotency-Key": key } }).then((r) => r.data);
+export const cambiarEstadoCatalogoFinanciero = (entidadId, tipo, id, estado) => client.patch(`/finanzas/entidades/${entidadId}/${tipo}/${id}/estado`, { estado }).then((r) => r.data);
+
 export const listarCuentasFinancieras = (entidadId) =>
   client.get(`/finanzas/entidades/${entidadId}/cuentas-financieras`).then((r) => r.data);
 
@@ -172,3 +187,5 @@ export const listarMovimientosCaja = (turnoId) =>
   client.get("/caja/movimientos", {
     params: { turno_id: turnoId },
   }).then((r) => r.data);
+
+export const transferirEntreCajas = (data, key) => client.post("/caja/transferencias", data, { headers: key ? { "Idempotency-Key": key } : undefined }).then((r) => r.data);
