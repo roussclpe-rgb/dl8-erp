@@ -83,4 +83,5 @@ test("el filtro del Dashboard aísla ventas y CxC por entidad y exige acceso", a
   assert.equal((await pendientesOtra.json()).every((venta) => venta.entidad_id === otra.id), true);
   const bloqueada = await fetch(`${baseUrl}/api/ventas?entidad_id=${entidad.id}`, { headers: { Authorization: `Bearer ${token(sinAcceso, "Sin acceso")}` } });
   assert.equal(bloqueada.status, 403);
+  assert.equal((await fetch(`${baseUrl}/api/ventas?entidad_id=abc`, { headers })).status, 400);
 });

@@ -30,6 +30,16 @@ function hashPagoHttp(ventaId, pagos, turnoCajaId) {
   return hashCanonico({ venta_id: Number(ventaId), pagos, turno_caja_id: turnoCajaId || null });
 }
 
+function entidadSolicitada(req) {
+  if (req.query.entidad_id == null || req.query.entidad_id === "") return null;
+  const entidadId = Number(req.query.entidad_id);
+  if (!Number.isSafeInteger(entidadId) || entidadId <= 0) {
+    const error = new Error("entidad_id debe ser un ID positivo"); error.status = 400; throw error;
+  }
+  catalogos.exigirAcceso(entidadId, req.usuario.id);
+  return entidadId;
+}
+
 // Si la venta/cobro trae un turno_caja_id, exige que ese turno esté abierto
 // ANTES de tocar la base de datos (falla rápido, con mensaje claro, en vez
 // de abortar a mitad de una transacción de venta ya iniciada).
@@ -44,10 +54,8 @@ function validarTurnoSiAplica(turnoCajaId) {
   return turno;
 }
 router.get("/", (req, res) => {
-  const entidadId = req.query.entidad_id ? Number(req.query.entidad_id) : null;
-  if (entidadId) {
-    try { catalogos.exigirAcceso(entidadId, req.usuario.id); } catch (error) { return res.status(error.status || 403).json({ error: error.message }); }
-  }
+  let entidadId;
+  try { entidadId = entidadSolicitada(req); } catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
   const ventas = entidadId ? db.prepare(`
     SELECT v.*, c.nombre AS cliente_nombre
     FROM ventas v JOIN clientes c ON c.id = v.cliente_id JOIN fin_documentos_cxc d ON d.venta_id=v.id
@@ -63,10 +71,8 @@ router.get("/", (req, res) => {
 });
 
 router.get("/pendientes", (req, res) => {
-  const entidadId = req.query.entidad_id ? Number(req.query.entidad_id) : null;
-  if (entidadId) {
-    try { catalogos.exigirAcceso(entidadId, req.usuario.id); } catch (error) { return res.status(error.status || 403).json({ error: error.message }); }
-  }
+  let entidadId;
+  try { entidadId = entidadSolicitada(req); } catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
   const ventas = entidadId ? db.prepare(`
     SELECT v.*, c.nombre AS cliente_nombre
     FROM ventas v JOIN clientes c ON c.id = v.cliente_id JOIN fin_documentos_cxc d ON d.venta_id=v.id
