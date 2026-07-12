@@ -1,18 +1,19 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-
-const VALOR_INSEGURO = "cambia-esto-en-produccion";
-const JWT_SECRET_ENV = process.env.JWT_SECRET;
+const crypto = require("crypto");
 
 const esDesarrollo = process.env.NODE_ENV === "development";
+const JWT_SECRET_ENV = process.env.JWT_SECRET?.trim();
+const pareceInseguro = !JWT_SECRET_ENV || JWT_SECRET_ENV.length < 32 || /cambia|reemplaza|ejemplo|secret/i.test(JWT_SECRET_ENV);
 
-if ((!JWT_SECRET_ENV || JWT_SECRET_ENV === VALOR_INSEGURO) && !esDesarrollo) {
+if (pareceInseguro && !esDesarrollo) {
   throw new Error(
-    "JWT_SECRET no está configurado con un valor seguro. Agrega JWT_SECRET en el archivo .env."
+    "JWT_SECRET debe estar configurado con al menos 32 caracteres aleatorios. Revisa backend/.env."
   );
 }
 
-const JWT_SECRET = JWT_SECRET_ENV || VALOR_INSEGURO;
+// Desarrollo sin .env usa un secreto efímero distinto en cada proceso, nunca uno público conocido.
+const JWT_SECRET = pareceInseguro ? crypto.randomBytes(32).toString("hex") : JWT_SECRET_ENV;
 const JWT_EXPIRES = "12h";
 
 function hashPassword(password) {

@@ -1,362 +1,144 @@
-Clear-Host
+$ErrorActionPreference = "Stop"
+$RUTA = [System.IO.Path]::GetFullPath($PSScriptRoot)
+$BACKEND = Join-Path $RUTA "backend"
+$FRONTEND = Join-Path $RUTA "frontend"
+$ENV_FILE = Join-Path $BACKEND ".env"
+$BACKUPS = Join-Path $BACKEND "backups"
 
-$RUTA = "C:\Users\ASUS\Downloads\dl8-erp-completo\dl8-erp"
+function Leer-Env {
+    param([string]$Ruta)
+    $valores = @{}
+    foreach ($linea in Get-Content -LiteralPath $Ruta) {
+        $texto = $linea.Trim()
+        if (!$texto -or $texto.StartsWith("#") -or !$texto.Contains("=")) { continue }
+        $partes = $texto.Split("=", 2)
+        $valores[$partes[0].Trim()] = $partes[1].Trim().Trim('"').Trim("'")
+    }
+    return $valores
+}
 
-function MostrarMenu {
+function Resolver-RutaBD {
+    param([hashtable]$Env)
+    $configurada = if ($Env.ContainsKey("DB_PATH") -and $Env.DB_PATH) { $Env.DB_PATH } else { "data.sqlite" }
+    if ([System.IO.Path]::IsPathRooted($configurada)) { return [System.IO.Path]::GetFullPath($configurada) }
+    return [System.IO.Path]::GetFullPath((Join-Path $BACKEND $configurada))
+}
 
+function Puerto-Ocupado {
+    param([int]$Puerto)
+    return $null -ne (Get-NetTCPConnection -State Listen -LocalPort $Puerto -ErrorAction SilentlyContinue | Select-Object -First 1)
+}
+
+function Validar-Repositorio {
+    if (!(Test-Path -LiteralPath $BACKEND -PathType Container)) { throw "No existe la carpeta backend en $RUTA" }
+    if (!(Test-Path -LiteralPath $FRONTEND -PathType Container)) { throw "No existe la carpeta frontend en $RUTA" }
+    if (!(Test-Path -LiteralPath $ENV_FILE -PathType Leaf)) {
+        throw "Falta backend/.env. Copia backend/.env.example, configura JWT_SECRET, CORS_ORIGINS y DB_PATH, y vuelve a ejecutar."
+    }
+    $envLocal = Leer-Env $ENV_FILE
+    $jwt = if ($envLocal.ContainsKey("JWT_SECRET")) { $envLocal.JWT_SECRET } else { "" }
+    if ($jwt.Length -lt 32 -or $jwt -match "cambia|reemplaza|ejemplo|secret") {
+        throw "JWT_SECRET debe tener al menos 32 caracteres aleatorios y no puede ser un valor de ejemplo."
+    }
+    if (!$envLocal.ContainsKey("CORS_ORIGINS") -or [string]::IsNullOrWhiteSpace($envLocal.CORS_ORIGINS)) {
+        throw "CORS_ORIGINS debe indicar al menos un origen permitido, por ejemplo http://localhost:5173."
+    }
+    $base = Resolver-RutaBD $envLocal
+    if (!(Test-Path -LiteralPath $base -PathType Leaf)) { throw "No existe la base configurada en DB_PATH: $base" }
+    return @{ Env = $envLocal; Base = $base }
+}
+
+function Puertos-Disponibles {
+    $ocupados = @(3001, 5173 | Where-Object { Puerto-Ocupado $_ })
+    if ($ocupados.Count) {
+        Write-Host "No se puede continuar. Puertos ocupados: $($ocupados -join ', ')." -ForegroundColor Red
+        Write-Host "Cierra el backend/frontend que ya estén ejecutándose o usa esa instancia existente."
+        return $false
+    }
+    return $true
+}
+
+function Backup-Negocio {
+    param([string]$Base)
+    New-Item -ItemType Directory -Path $BACKUPS -Force | Out-Null
+    & node (Join-Path $BACKEND "scripts\sqlite-safety.js") backup --source $Base --directory $BACKUPS
+    if ($LASTEXITCODE -ne 0) { throw "El respaldo SQLite falló; no se iniciará el modo negocio." }
+}
+
+function Abrir-ERP {
+    param([ValidateSet("pruebas", "negocio")][string]$Modo, [string]$Base)
+    if (!(Puertos-Disponibles)) { return }
+    if ($Modo -eq "negocio") { Backup-Negocio $Base }
+    $comandoBackend = if ($Modo -eq "pruebas") { "npm run dev:pruebas" } else { "npm run dev:negocio" }
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location -LiteralPath '$BACKEND'; $comandoBackend"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location -LiteralPath '$FRONTEND'; npm run dev"
+    Write-Host "ERP $Modo iniciado desde $RUTA"
+    Write-Host "Frontend: http://localhost:5173"
+    Write-Host "Backend:  http://localhost:3001"
+}
+
+function Restaurar-Backup {
+    param([string]$Base)
+    if (!(Puertos-Disponibles)) { Write-Host "La restauración exige backend y frontend detenidos." -ForegroundColor Red; return }
+    $archivos = @(Get-ChildItem -LiteralPath $BACKUPS -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^data-\d{4}-\d{2}-\d{2}-\d{6}\.sqlite$' } |
+        Sort-Object LastWriteTime -Descending)
+    if (!$archivos.Count) { Write-Host "No existen respaldos disponibles en $BACKUPS"; return }
+    for ($i = 0; $i -lt $archivos.Count; $i++) { Write-Host "$($i + 1) - $($archivos[$i].Name)" }
+    $seleccion = 0
+    if (![int]::TryParse((Read-Host "Selecciona el respaldo"), [ref]$seleccion) -or $seleccion -lt 1 -or $seleccion -gt $archivos.Count) { Write-Host "Selección inválida"; return }
+    if ((Read-Host "Escribe RESTAURAR para reemplazar la base configurada") -cne "RESTAURAR") { Write-Host "Restauración cancelada"; return }
+    & node (Join-Path $BACKEND "scripts\sqlite-safety.js") restore --backup $archivos[$seleccion - 1].FullName --target $Base --directory $BACKUPS
+    if ($LASTEXITCODE -ne 0) { throw "La restauración no se completó." }
+}
+
+function Actualizar-ERP {
+    Set-Location -LiteralPath $RUTA
+    if (git status --porcelain) { Write-Host "Hay cambios locales. Confírmalos o guárdalos antes de actualizar." -ForegroundColor Red; return }
+    if ((Read-Host "Escribe ACTUALIZAR para ejecutar git pull --ff-only e instalar dependencias") -cne "ACTUALIZAR") { Write-Host "Actualización cancelada"; return }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw "git pull --ff-only falló." }
+    npm --prefix $BACKEND install
+    if ($LASTEXITCODE -ne 0) { throw "npm install del backend falló." }
+    npm --prefix $FRONTEND install
+    if ($LASTEXITCODE -ne 0) { throw "npm install del frontend falló." }
+}
+
+function Mostrar-Menu {
     Clear-Host
-
     Write-Host "================================="
-    Write-Host "        ERP PANADERIA"
+    Write-Host "          ERP PANADERÍA"
     Write-Host "================================="
-    Write-Host ""
-
+    Write-Host "Repositorio: $RUTA"
     Write-Host "1 - Abrir modo PRUEBAS"
     Write-Host "2 - Abrir modo NEGOCIO"
     Write-Host "3 - Abrir proyecto en VS Code"
-    Write-Host "4 - Hacer backup del negocio"
-    Write-Host "5 - Ver estado de bases de datos"
-    Write-Host "6 - Salir"
-    Write-Host ""
-
+    Write-Host "4 - Hacer respaldo del negocio"
+    Write-Host "5 - Ver estado de la base configurada"
+    Write-Host "6 - Restaurar un respaldo"
+    Write-Host "7 - Actualizar código"
+    Write-Host "8 - Salir"
 }
 
-
-function AbrirERP($modo) {
-
-    Write-Host ""
-    Write-Host "Iniciando ERP $modo..."
-    Write-Host ""
-
-    if ($modo -eq "pruebas") {
-
-        $comandoBackend = "npm run dev:pruebas"
-
-    }
-    else {
-
-        # Backup automático antes de abrir negocio
-        BackupNegocio
-
-        $comandoBackend = "npm run dev:negocio"
-
-    }
-
-
-    Start-Process powershell `
-        -ArgumentList "-NoExit", "-Command", "cd '$RUTA\backend'; $comandoBackend"
-
-
-    Start-Process powershell `
-        -ArgumentList "-NoExit", "-Command", "cd '$RUTA\frontend'; npm run dev"
-
-
-    Start-Sleep -Seconds 3
-
-
-    Write-Host ""
-    Write-Host "================================="
-    Write-Host "ERP iniciado correctamente"
-    Write-Host "================================="
-    Write-Host ""
-    Write-Host "Frontend:"
-    Write-Host "http://localhost:5173"
-    Write-Host ""
-    Write-Host "Backend:"
-    Write-Host "http://localhost:3001"
-
-}
-
-function BackupNegocio {
-
-    $fecha = Get-Date -Format "yyyy-MM-dd_HH-mm"
-
-    $origen = "$RUTA\backend\data.sqlite"
-
-    if (Test-Path $origen) {
-
-        Copy-Item `
-        $origen `
-        "$RUTA\backend\backup_data_$fecha.sqlite"
-
-        Write-Host ""
-        Write-Host " Backup creado:"
-        Write-Host "backup_data_$fecha.sqlite"
-        Write-Host ""
-
-    }
-    else {
-
-        Write-Host ""
-        Write-Host " No existe data.sqlite todavía"
-        Write-Host ""
-
-    }
-
-}
-
-function RestaurarBackup {
-
-    Clear-Host
-
-    Write-Host "================================="
-    Write-Host "   RESTAURAR BACKUP NEGOCIO"
-    Write-Host "================================="
-    Write-Host ""
-
-    $backups = Get-ChildItem "$RUTA\backend" -Filter "backup_data_*.sqlite" |
-    Sort-Object LastWriteTime -Descending
-
-
-    if ($backups.Count -eq 0) {
-
-        Write-Host "No existen backups disponibles."
-        Pause
-        return
-
-    }
-
-
-    Write-Host "Backups disponibles:"
-    Write-Host ""
-
-
-    for ($i = 0; $i -lt $backups.Count; $i++) {
-
-        Write-Host "$($i+1) - $($backups[$i].Name)"
-
-    }
-
-
-    Write-Host ""
-
-    $seleccion = Read-Host "Seleccione backup a restaurar"
-
-
-    if ($seleccion -lt 1 -or $seleccion -gt $backups.Count) {
-
-        Write-Host "Seleccion invalida"
-        Pause
-        return
-
-    }
-
-
-    $backupElegido = $backups[$seleccion-1]
-
-
-    Write-Host ""
-    Write-Host "⚠️ ATENCION"
-    Write-Host "Se reemplazará la base actual del negocio:"
-    Write-Host "data.sqlite"
-    Write-Host ""
-    Write-Host "Por:"
-    Write-Host $backupElegido.Name
-    Write-Host ""
-
-
-    $confirmar = Read-Host "¿Continuar? (S/N)"
-
-
-    if ($confirmar -eq "S" -or $confirmar -eq "s") {
-
-
-        # Backup antes de restaurar
-        $fecha = Get-Date -Format "yyyy-MM-dd_HH-mm"
-
-        Copy-Item `
-        "$RUTA\backend\data.sqlite" `
-        "$RUTA\backend\backup_antes_restaurar_$fecha.sqlite"
-
-
-        Copy-Item `
-        $backupElegido.FullName `
-        "$RUTA\backend\data.sqlite" `
-        -Force
-
-
-        Write-Host ""
-        Write-Host "✅ Restauracion completada"
-        Write-Host ""
-
-    }
-    else {
-
-        Write-Host ""
-        Write-Host "Cancelado"
-
-    }
-
-
-    Pause
-
-}
-
-function ActualizarERP {
-
-    Clear-Host
-
-    Write-Host "================================="
-    Write-Host "     ACTUALIZAR ERP DESDE GITHUB"
-    Write-Host "================================="
-    Write-Host ""
-
-    Set-Location $RUTA
-
-
-    Write-Host "Verificando cambios locales..."
-    git status
-
-
-    Write-Host ""
-    $confirmar = Read-Host "¿Continuar con la actualización? (S/N)"
-
-
-    if ($confirmar -ne "S" -and $confirmar -ne "s") {
-
-        Write-Host "Cancelado"
-        Pause
-        return
-
-    }
-
-
-    Write-Host ""
-    Write-Host "Guardando cambios locales temporales..."
-
-    git stash
-
-
-    Write-Host ""
-    Write-Host "Descargando cambios desde GitHub..."
-
-    git pull
-
-
-    Write-Host ""
-    Write-Host "Actualizando backend..."
-
-    Set-Location "$RUTA\backend"
-
-    npm install
-
-
-    Write-Host ""
-    Write-Host "Actualizando frontend..."
-
-    Set-Location "$RUTA\frontend"
-
-    npm install
-
-
-    Set-Location $RUTA
-
-
-    Write-Host ""
-    Write-Host "================================="
-    Write-Host "✅ ERP actualizado correctamente"
-    Write-Host "================================="
-    Write-Host ""
-
-    Pause
-
-}
-
-function EstadoBD {
-
-    Write-Host ""
-    Write-Host "Bases de datos encontradas:"
-    Write-Host ""
-
-    Get-ChildItem "$RUTA\backend" -Filter "*.sqlite" |
-    Select-Object Name, Length, LastWriteTime
-
-    Pause
-}
-
-
-
-while ($true) {
-
-    MostrarMenu
-
-    $opcion = Read-Host "Seleccione una opcion"
-
-
-    switch ($opcion) {
-
-        "1" {
-            AbrirERP "pruebas"
-            Pause
-        }
-
-
+try { $configuracion = Validar-Repositorio }
+catch { Write-Host "No se puede iniciar ERP.ps1: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
+
+$salir = $false
+while (!$salir) {
+    Mostrar-Menu
+    switch (Read-Host "Selecciona una opción") {
+        "1" { Abrir-ERP "pruebas" $configuracion.Base; Pause }
         "2" {
-
-    Clear-Host
-
-    Write-Host "================================="
-    Write-Host "       ⚠️ MODO NEGOCIO"
-    Write-Host "================================="
-    Write-Host ""
-    Write-Host "Estas entrando a la base REAL del negocio."
-    Write-Host ""
-    Write-Host "Aqui las ventas, clientes, caja e inventario"
-    Write-Host "seran datos reales."
-    Write-Host ""
-
-    $confirmar = Read-Host "¿Deseas continuar? (S/N)"
-
-    if ($confirmar -eq "S" -or $confirmar -eq "s") {
-
-        AbrirERP "negocio"
-        Pause
-
-    }
-    else {
-
-        Write-Host ""
-        Write-Host "Cancelado. Regresando al menu..."
-        Start-Sleep -Seconds 2
-
-    }
-}
-
-
-        "3" {
-            code $RUTA
-        }
-
-
-        "4" {
-            BackupNegocio
+            if ((Read-Host "Escribe NEGOCIO para usar la base real") -ceq "NEGOCIO") { Abrir-ERP "negocio" $configuracion.Base }
+            else { Write-Host "Inicio cancelado" }
             Pause
         }
-
-
-        "5" {
-            EstadoBD
-        }
-
-
-        "6" {
-            Write-Host "Cerrando ERP..."
-            break
-        }
-
-        "7" {
-            RestaurarBackup
-        }
-
-        "8" {
-            ActualizarERP
-        }
-
-        default {
-            Write-Host "Opcion incorrecta"
-            Pause
-        }
-
+        "3" { code $RUTA }
+        "4" { Backup-Negocio $configuracion.Base; Pause }
+        "5" { Get-Item -LiteralPath $configuracion.Base | Select-Object FullName, Length, LastWriteTime; Pause }
+        "6" { Restaurar-Backup $configuracion.Base; Pause }
+        "7" { Actualizar-ERP; Pause }
+        "8" { $salir = $true }
+        default { Write-Host "Opción incorrecta"; Pause }
     }
-
 }

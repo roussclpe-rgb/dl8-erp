@@ -15,6 +15,7 @@ data.sqlite-wal
 *.sqlite3-wal
 backend/backup_*.sqlite*
 backend/data_pruebas.sqlite*
+backend/backups/
 
 # Copias de edición locales
 *.bak
