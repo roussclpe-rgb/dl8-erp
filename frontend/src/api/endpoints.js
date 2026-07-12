@@ -98,11 +98,11 @@ export const editarProductoVenta = (grupoId, data) =>
 
 
 // ---------- Ventas ----------
-export const listarVentas = () =>
-  client.get("/ventas").then((r) => r.data);
+export const listarVentas = (params) =>
+  client.get("/ventas", { params }).then((r) => r.data);
 
-export const listarVentasPendientes = () =>
-  client.get("/ventas/pendientes").then((r) => r.data);
+export const listarVentasPendientes = (params) =>
+  client.get("/ventas/pendientes", { params }).then((r) => r.data);
 
 export const obtenerVenta = (id) =>
   client.get(`/ventas/${id}`).then((r) => r.data);
@@ -144,6 +144,7 @@ export const listarEntidadesFinancieras = () =>
 // ---------- Finanzas ----------
 export const crearEntidadFinanciera = (data) => client.post("/finanzas/entidades", data).then((r) => r.data);
 export const listarPlanCuentas = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/plan-cuentas`).then((r) => r.data);
+export const listarPeriodosFinancieros = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/periodos`).then((r) => r.data);
 export const crearCuentaPlan = (entidadId, data) => client.post(`/finanzas/entidades/${entidadId}/plan-cuentas`, data).then((r) => r.data);
 export const crearCuentaFinanciera = (entidadId, data) => client.post(`/finanzas/entidades/${entidadId}/cuentas-financieras`, data).then((r) => r.data);
 export const editarCuentaFinanciera = (entidadId, id, data) => client.put(`/finanzas/entidades/${entidadId}/cuentas-financieras/${id}`, data).then((r) => r.data);

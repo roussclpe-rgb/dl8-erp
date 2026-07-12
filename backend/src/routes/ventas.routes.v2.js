@@ -8,6 +8,7 @@ const caja = require("../services/caja");
 const { emitirVenta, buscarVentaIdempotente } = require("../services/finanzas/ventas");
 const { registrarCobrosVenta, buscarPagoIdempotente, saldoDocumento, anularVentaSinCobros } = require("../services/finanzas/cobros-cxc");
 const { hashCanonico } = require("../services/finanzas/idempotencia");
+const catalogos = require("../services/finanzas/catalogos");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -43,7 +44,16 @@ function validarTurnoSiAplica(turnoCajaId) {
   return turno;
 }
 router.get("/", (req, res) => {
-  const ventas = db.prepare(`
+  const entidadId = req.query.entidad_id ? Number(req.query.entidad_id) : null;
+  if (entidadId) {
+    try { catalogos.exigirAcceso(entidadId, req.usuario.id); } catch (error) { return res.status(error.status || 403).json({ error: error.message }); }
+  }
+  const ventas = entidadId ? db.prepare(`
+    SELECT v.*, c.nombre AS cliente_nombre
+    FROM ventas v JOIN clientes c ON c.id = v.cliente_id JOIN fin_documentos_cxc d ON d.venta_id=v.id
+    WHERE v.anulado = 0 AND d.entidad_id=?
+    ORDER BY v.fecha DESC, v.id DESC
+  `).all(entidadId) : db.prepare(`
     SELECT v.*, c.nombre AS cliente_nombre
     FROM ventas v JOIN clientes c ON c.id = v.cliente_id
     WHERE v.anulado = 0
@@ -53,7 +63,15 @@ router.get("/", (req, res) => {
 });
 
 router.get("/pendientes", (req, res) => {
-  const ventas = db.prepare(`
+  const entidadId = req.query.entidad_id ? Number(req.query.entidad_id) : null;
+  if (entidadId) {
+    try { catalogos.exigirAcceso(entidadId, req.usuario.id); } catch (error) { return res.status(error.status || 403).json({ error: error.message }); }
+  }
+  const ventas = entidadId ? db.prepare(`
+    SELECT v.*, c.nombre AS cliente_nombre
+    FROM ventas v JOIN clientes c ON c.id = v.cliente_id JOIN fin_documentos_cxc d ON d.venta_id=v.id
+    WHERE v.anulado = 0 AND d.entidad_id=?
+  `).all(entidadId) : db.prepare(`
     SELECT v.*, c.nombre AS cliente_nombre
     FROM ventas v JOIN clientes c ON c.id = v.cliente_id
     WHERE v.anulado = 0

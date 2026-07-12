@@ -68,3 +68,19 @@ test("rechaza entidad inválida, sin acceso y período financiero cerrado; rollb
   db.exec("DROP TRIGGER fallo_cxc");
   assert.equal(db.prepare("SELECT COUNT(*) n FROM ventas").get().n, antes);
 });
+
+test("el filtro del Dashboard aísla ventas y CxC por entidad y exige acceso", async () => {
+  const otra = catalogos.crearEntidadFundacion({ codigo: "CXC_OTRA", nombre: "CxC Otra", tipo: "empresa", fechaInicial: "2026-07-01", usuarioId: admin }).entidad;
+  const ventaOtra = await pedir({ ...payload, entidad_id: otra.id }, "venta-otra-entidad");
+  assert.equal(ventaOtra.status, 201);
+  const headers = { Authorization: `Bearer ${token(admin, "CxC")}` };
+  const ventasPropias = await fetch(`${baseUrl}/api/ventas?entidad_id=${entidad.id}`, { headers });
+  const filasPropias = await ventasPropias.json();
+  assert.equal(ventasPropias.status, 200);
+  assert.equal(filasPropias.length > 0, true);
+  assert.equal(filasPropias.every((venta) => venta.entidad_id === entidad.id), true);
+  const pendientesOtra = await fetch(`${baseUrl}/api/ventas/pendientes?entidad_id=${otra.id}`, { headers });
+  assert.equal((await pendientesOtra.json()).every((venta) => venta.entidad_id === otra.id), true);
+  const bloqueada = await fetch(`${baseUrl}/api/ventas?entidad_id=${entidad.id}`, { headers: { Authorization: `Bearer ${token(sinAcceso, "Sin acceso")}` } });
+  assert.equal(bloqueada.status, 403);
+});
