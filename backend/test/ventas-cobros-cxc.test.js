@@ -9,16 +9,18 @@ const { generarToken } = require("../src/auth");
 const catalogos = require("../src/services/finanzas/catalogos");
 const caja = require("../src/services/caja");
 const politicas = require("../src/services/finanzas/politicas");
+const motor = require("../src/services/finanzas/motor");
 
 const admin = Number(db.prepare("INSERT INTO usuarios(nombre,email,password_hash,rol_id)VALUES('Cobros','cobros@test','x',1)").run().lastInsertRowid);
 const auth = generarToken({ id: admin, nombre: "Cobros", rol_nombre: "admin" });
 const entidad = catalogos.crearEntidadFundacion({ codigo: "COBROS_CXC", nombre: "Cobros CxC", tipo: "empresa", fechaInicial: "2026-07-01", usuarioId: admin }).entidad;
-const cuenta = (codigoPlan, codigo, nombre, tipo) => {
+const cuenta = (codigoPlan, codigo, nombre, tipo, proveedor) => {
   const plan = db.prepare("SELECT id FROM fin_plan_cuentas WHERE entidad_id=? AND codigo=?").get(entidad.id, codigoPlan);
-  return catalogos.crearCuentaFinanciera({ entidadId: entidad.id, cuentaContableId: plan.id, codigo, nombre, tipo, usuarioId: admin });
+  return catalogos.crearCuentaFinanciera({ entidadId: entidad.id, cuentaContableId: plan.id, codigo, nombre, tipo, proveedor, usuarioId: admin });
 };
 const cuentaCaja = cuenta("1101", "CAJA_CXC", "Caja CxC", "caja");
-const billetera = cuenta("1103", "WALLET_CXC", "Billetera CxC", "billetera");
+const billetera = cuenta("1103", "WALLET_CXC", "Billetera CxC", "billetera", "yape");
+const plin = cuenta("1103", "PLIN_CXC", "Plin CxC", "billetera", "plin");
 const banco = cuenta("1102", "BANCO_CXC", "Banco CxC", "banco");
 const procesador = cuenta("1105", "PROC_CXC", "Procesador CxC", "procesador");
 const cajaId = Number(db.prepare("INSERT INTO cajas(nombre,entidad_id,cuenta_financiera_id)VALUES('Caja CxC',?,?)").run(entidad.id, cuentaCaja.id).lastInsertRowid);
@@ -83,7 +85,20 @@ test("pago mixto dirige cada medio a su cuenta y aplica la suma exacta", async (
   const doc = db.prepare("SELECT * FROM fin_documentos_cxc WHERE venta_id=?").get(x.data.id);
   assert.equal(db.prepare("SELECT SUM(importe_minor) n FROM fin_aplicaciones_cxc WHERE documento_cxc_id=?").get(doc.id).n, 10000);
   assert.deepEqual(db.prepare("SELECT cuenta_financiera_id FROM fin_cobros WHERE documento_cxc_id=? ORDER BY id").all(doc.id).map((r) => r.cuenta_financiera_id), [billetera.id, banco.id, procesador.id]);
+  const saldoYape = motor.saldos(entidad.id).tesoreria.find((item) => item.id === billetera.id);
+  assert.equal(saldoYape.proveedor, "yape");
+  assert.equal(saldoYape.saldo_minor, 2000);
   assert.equal(db.prepare("SELECT estado FROM fin_documentos_cxc WHERE id=?").get(doc.id).estado, "pagada");
+});
+
+test("un cobro Yape rechaza Plin y termina únicamente en la cuenta Yape", async () => {
+  const venta = await nuevaVenta();
+  const incorrecto = await pedir(`/api/ventas/${venta.data.id}/pagos`, { pagos: [{ monto: 10, metodoPago: "Yape", cuenta_financiera_id: plin.id }] }, `yape-plin-mal-${++secuencia}`);
+  assert.equal(incorrecto.status, 409);
+  const correcto = await pedir(`/api/ventas/${venta.data.id}/pagos`, { pagos: [{ monto: 10, metodoPago: "Yape", cuenta_financiera_id: billetera.id }] }, `yape-correcto-${++secuencia}`);
+  assert.equal(correcto.status, 200);
+  const cobro = db.prepare("SELECT cuenta_financiera_id FROM fin_cobros WHERE documento_cxc_id=? ORDER BY id DESC").get(venta.data.documento_cxc_id);
+  assert.equal(cobro.cuenta_financiera_id, billetera.id);
 });
 
 test("rechaza sobrepago, cuenta ausente y efectivo sin turno", async () => {

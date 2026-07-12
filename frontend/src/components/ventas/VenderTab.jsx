@@ -28,6 +28,7 @@ import FormDialog from "../FormDialog";
 import { useAuth } from "../../context/AuthContext";
 import { useCajaActiva } from "../../hooks/useCajaActiva";
 import { useNotify } from "../../hooks/useNotify";
+import { cuentaCompatibleConMetodo } from "../../utils/cuentasFinancieras";
 import {
   listarClientes,
   listarProductosVenta,
@@ -438,7 +439,7 @@ export default function VenderTab() {
                         render={({ field: f }) => (
                           <TextField select label="Cuenta receptora" fullWidth {...f}>
                             {cuentasFinancieras
-                              .filter((cuenta) => ({ Yape: "billetera", Plin: "billetera", Transferencia: "banco", Tarjeta: "procesador" }[watchPagos?.[index]?.metodoPago] === cuenta.tipo))
+                              .filter((cuenta) => cuentaCompatibleConMetodo(cuenta, watchPagos?.[index]?.metodoPago))
                               .map((cuenta) => <MenuItem key={cuenta.id} value={cuenta.id}>{cuenta.nombre}</MenuItem>)}
                           </TextField>
                         )}

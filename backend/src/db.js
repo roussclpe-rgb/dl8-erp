@@ -12,6 +12,7 @@ db.exec(schema);
 
 try {
   require("./migrations/pagos-cxc-compat").prepararCompatibilidadPagosCxC(db);
+  require("./migrations/cuentas-financieras-proveedor").migrarProveedorCuentaFinanciera(db);
   const esquemaFinanzas = fs.readFileSync(path.join(__dirname, "..", "finanzas-schema.sql"), "utf8");
   db.exec(esquemaFinanzas);
   require("./migrations/fin-eventos-caja").migrarTiposEventosCaja(db);

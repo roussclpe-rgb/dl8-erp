@@ -4,6 +4,7 @@ const motor = require("./motor");
 const { aMinorPEN } = require("./montos");
 const { hashCanonico } = require("./idempotencia");
 const politicas = require("./politicas");
+const { compatibilidadMetodo, cuentaCompatible } = require("./cuentas-financieras");
 
 const fallo = (message, status = 400) => Object.assign(new Error(message), { status });
 const fechaHoy = () => new Date().toISOString().slice(0, 10);
@@ -45,14 +46,12 @@ function cuentaReceptora({ entidadId, metodoPago, cuentaFinancieraId, turnoCajaI
     return { cuenta, turnoId: turno.id };
   }
 
-  const tipos = { Yape: "billetera", Plin: "billetera", Transferencia: "banco", Tarjeta: "procesador" };
-  const tipoEsperado = tipos[metodoPago];
-  if (!tipoEsperado) throw fallo("Método de pago no soportado");
-  if (!cuentaFinancieraId) throw fallo(`Selecciona una cuenta financiera tipo ${tipoEsperado} para ${metodoPago}`, 409);
+  const esperado = compatibilidadMetodo(metodoPago);
+  if (!cuentaFinancieraId) throw fallo(`Selecciona una cuenta financiera compatible con ${metodoPago}`, 409);
   const cuenta = db.prepare(`SELECT cf.*, pc.id cuenta_contable_id FROM fin_cuentas_financieras cf
     JOIN fin_plan_cuentas pc ON pc.id=cf.cuenta_contable_id
-    WHERE cf.id=? AND cf.entidad_id=? AND cf.tipo=? AND cf.estado='activa'`).get(cuentaFinancieraId, entidadId, tipoEsperado);
-  if (!cuenta) throw fallo(`La cuenta financiera no es una ${tipoEsperado} activa de la entidad`, 409);
+    WHERE cf.id=? AND cf.entidad_id=? AND cf.tipo=? AND cf.estado='activa'`).get(cuentaFinancieraId, entidadId, esperado.tipo);
+  if (!cuenta || !cuentaCompatible(cuenta, metodoPago)) throw fallo(`La cuenta financiera no corresponde al proveedor de ${metodoPago}`, 409);
   return { cuenta, turnoId: null };
 }
 

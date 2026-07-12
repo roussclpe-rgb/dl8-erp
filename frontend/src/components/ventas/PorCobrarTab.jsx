@@ -13,6 +13,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useNotify } from "../../hooks/useNotify";
 import { useCajaActiva } from "../../hooks/useCajaActiva";
 import { listarVentasPendientes, registrarPago, listarCuentasFinancieras } from "../../api/endpoints";
+import { cuentaCompatibleConMetodo } from "../../utils/cuentasFinancieras";
 
 const METODOS_PAGO = ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta"];
 
@@ -168,7 +169,7 @@ export default function PorCobrarTab() {
                       render={({ field: f }) => (
                         <TextField select label="Cuenta receptora" fullWidth {...f}>
                           {cuentasFinancieras
-                            .filter((cuenta) => ({ Yape: "billetera", Plin: "billetera", Transferencia: "banco", Tarjeta: "procesador" }[watchPagos?.[index]?.metodoPago] === cuenta.tipo))
+                            .filter((cuenta) => cuentaCompatibleConMetodo(cuenta, watchPagos?.[index]?.metodoPago))
                             .map((cuenta) => <MenuItem key={cuenta.id} value={cuenta.id}>{cuenta.nombre}</MenuItem>)}
                         </TextField>
                       )}

@@ -10,7 +10,7 @@ const admin = Number(db.prepare("INSERT INTO usuarios(nombre,email,password_hash
 function base(codigo = 'MPF') {
   const entidad = cat.crearEntidadFundacion({ codigo, nombre: codigo, tipo: 'empresa', fechaInicial: '2026-07-01', usuarioId: admin }).entidad;
   const cuentaPlan = db.prepare("SELECT id FROM fin_plan_cuentas WHERE entidad_id=? AND codigo='1101'").get(entidad.id).id;
-  const cuenta = cat.crearCuentaFinanciera({ entidadId: entidad.id, cuentaContableId: cuentaPlan, codigo: 'YAPE', nombre: 'Yape', tipo: 'billetera', usuarioId: admin });
+  const cuenta = cat.crearCuentaFinanciera({ entidadId: entidad.id, cuentaContableId: cuentaPlan, codigo: 'YAPE', nombre: 'Yape', tipo: 'billetera', proveedor: 'yape', usuarioId: admin });
   const sinAsignar = db.prepare("SELECT id FROM fin_bolsillos WHERE entidad_id=? AND tipo='sin_asignar'").get(entidad.id).id;
   const marketing = cat.crearBolsillo({ entidadId: entidad.id, codigo: 'MKT', nombre: 'Marketing', tipo: 'operacion', usuarioId: admin });
   const utilidad = cat.crearBolsillo({ entidadId: entidad.id, codigo: 'UTI', nombre: 'Utilidad', tipo: 'operacion', usuarioId: admin });

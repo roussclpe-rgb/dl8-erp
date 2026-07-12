@@ -146,6 +146,8 @@ export const crearEntidadFinanciera = (data) => client.post("/finanzas/entidades
 export const listarPlanCuentas = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/plan-cuentas`).then((r) => r.data);
 export const crearCuentaPlan = (entidadId, data) => client.post(`/finanzas/entidades/${entidadId}/plan-cuentas`, data).then((r) => r.data);
 export const crearCuentaFinanciera = (entidadId, data) => client.post(`/finanzas/entidades/${entidadId}/cuentas-financieras`, data).then((r) => r.data);
+export const editarCuentaFinanciera = (entidadId, id, data) => client.put(`/finanzas/entidades/${entidadId}/cuentas-financieras/${id}`, data).then((r) => r.data);
+export const listarPropietariosFinancieros = () => client.get("/finanzas/propietarios").then((r) => r.data);
 export const crearBolsillo = (entidadId, data) => client.post(`/finanzas/entidades/${entidadId}/bolsillos`, data).then((r) => r.data);
 export const saldosTesoreria = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/saldos/tesoreria`).then((r) => r.data);
 export const saldosBolsillos = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/saldos/bolsillos`).then((r) => r.data);
@@ -159,6 +161,7 @@ export const registrarTransferenciaFinanciera = (entidadId, data, key) => client
 export const revertirEventoFinanciero = (entidadId, eventoId, key) => client.post(`/finanzas/entidades/${entidadId}/eventos/${eventoId}/reversiones`, {}, { headers: { "Idempotency-Key": key } }).then((r) => r.data);
 export const cambiarEstadoCatalogoFinanciero = (entidadId, tipo, id, estado) => client.patch(`/finanzas/entidades/${entidadId}/${tipo}/${id}/estado`, { estado }).then((r) => r.data);
 export const listarPoliticasFinancieras = (e) => client.get(`/finanzas/entidades/${e}/politicas-financieras`).then((r) => r.data);
+export const dashboardPoliticasFinancieras = (e, params) => client.get(`/finanzas/entidades/${e}/politicas-financieras/dashboard`, { params }).then((r) => r.data);
 export const obtenerPoliticaFinanciera = (e, id) => client.get(`/finanzas/entidades/${e}/politicas-financieras/${id}`).then((r) => r.data);
 export const crearPoliticaFinanciera = (e, data) => client.post(`/finanzas/entidades/${e}/politicas-financieras`, data).then((r) => r.data);
 export const crearVersionPoliticaFinanciera = (e, id, data) => client.post(`/finanzas/entidades/${e}/politicas-financieras/${id}/versiones`, data).then((r) => r.data);

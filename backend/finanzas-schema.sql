@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS fin_cuentas_financieras (
   id INTEGER PRIMARY KEY AUTOINCREMENT, entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id),
   cuenta_contable_id INTEGER NOT NULL REFERENCES fin_plan_cuentas(id), codigo TEXT NOT NULL, nombre TEXT NOT NULL,
   tipo TEXT NOT NULL CHECK (tipo IN ('caja','banco','billetera','procesador','custodia_tercero','transito')),
+  proveedor TEXT NOT NULL DEFAULT 'otro' CHECK (proveedor IN ('efectivo','banco','yape','plin','otra_billetera','procesador','custodia_tercero','transito','otro')),
   moneda TEXT NOT NULL DEFAULT 'PEN' CHECK (moneda = 'PEN'), titular_legal TEXT,
   custodio_propietario_id INTEGER REFERENCES fin_propietarios(id), custodio_entidad_id INTEGER REFERENCES fin_entidades_economicas(id),
   referencia_externa TEXT, estado TEXT NOT NULL DEFAULT 'activa' CHECK (estado IN ('activa','bloqueada','inactiva')),
@@ -312,4 +313,16 @@ CREATE TRIGGER IF NOT EXISTS trg_fin_cuenta_financiera_mapeo_insert BEFORE INSER
 END;
 CREATE TRIGGER IF NOT EXISTS trg_fin_cuenta_financiera_mapeo_update BEFORE UPDATE OF entidad_id, cuenta_contable_id, tipo ON fin_cuentas_financieras BEGIN
   SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_plan_cuentas pc WHERE pc.id = NEW.cuenta_contable_id AND pc.entidad_id = NEW.entidad_id AND pc.naturaleza = 'activo' AND pc.estado = 'activa' AND pc.permite_movimiento = 1 AND ((NEW.tipo IN ('caja','banco','billetera','transito') AND pc.subtipo = 'efectivo_equivalente') OR (NEW.tipo = 'custodia_tercero' AND pc.subtipo = 'custodia_tercero') OR (NEW.tipo = 'procesador' AND pc.subtipo = 'fondos_procesador'))) THEN RAISE(ABORT, 'El mapeo cuenta financiera/cuenta contable no es válido') END;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fin_cuenta_financiera_proveedor_insert BEFORE INSERT ON fin_cuentas_financieras BEGIN
+  SELECT CASE WHEN NOT ((NEW.tipo='caja' AND NEW.proveedor='efectivo') OR (NEW.tipo='banco' AND NEW.proveedor='banco') OR (NEW.tipo='billetera' AND NEW.proveedor IN ('yape','plin','otra_billetera','otro')) OR (NEW.tipo='procesador' AND NEW.proveedor IN ('procesador','otro')) OR (NEW.tipo='custodia_tercero' AND NEW.proveedor IN ('custodia_tercero','otro')) OR (NEW.tipo='transito' AND NEW.proveedor IN ('transito','otro'))) THEN RAISE(ABORT,'El proveedor no es compatible con el tipo de cuenta financiera') END;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fin_cuenta_financiera_proveedor_update BEFORE UPDATE OF tipo, proveedor ON fin_cuentas_financieras BEGIN
+  SELECT CASE WHEN NOT ((NEW.tipo='caja' AND NEW.proveedor='efectivo') OR (NEW.tipo='banco' AND NEW.proveedor='banco') OR (NEW.tipo='billetera' AND NEW.proveedor IN ('yape','plin','otra_billetera','otro')) OR (NEW.tipo='procesador' AND NEW.proveedor IN ('procesador','otro')) OR (NEW.tipo='custodia_tercero' AND NEW.proveedor IN ('custodia_tercero','otro')) OR (NEW.tipo='transito' AND NEW.proveedor IN ('transito','otro'))) THEN RAISE(ABORT,'El proveedor no es compatible con el tipo de cuenta financiera') END;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fin_cobros_proveedor BEFORE INSERT ON fin_cobros BEGIN
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_cuentas_financieras c WHERE c.id=NEW.cuenta_financiera_id AND ((NEW.metodo_pago='Efectivo' AND c.tipo='caja' AND c.proveedor='efectivo') OR (NEW.metodo_pago='Yape' AND c.tipo='billetera' AND c.proveedor='yape') OR (NEW.metodo_pago='Plin' AND c.tipo='billetera' AND c.proveedor='plin') OR (NEW.metodo_pago='Transferencia' AND c.tipo='banco' AND c.proveedor='banco') OR (NEW.metodo_pago='Tarjeta' AND c.tipo='procesador'))) THEN RAISE(ABORT,'El proveedor de la cuenta no coincide con el método de cobro') END;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fin_pagos_cxp_proveedor BEFORE INSERT ON fin_pagos_cxp BEGIN
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM fin_cuentas_financieras c WHERE c.id=NEW.cuenta_financiera_id AND ((NEW.metodo_pago='Efectivo' AND c.tipo='caja' AND c.proveedor='efectivo') OR (NEW.metodo_pago='Yape' AND c.tipo='billetera' AND c.proveedor='yape') OR (NEW.metodo_pago='Plin' AND c.tipo='billetera' AND c.proveedor='plin') OR (NEW.metodo_pago='Transferencia' AND c.tipo='banco' AND c.proveedor='banco') OR (NEW.metodo_pago='Tarjeta' AND c.tipo='procesador'))) THEN RAISE(ABORT,'El proveedor de la cuenta no coincide con el método de pago') END;
 END;
