@@ -1,4 +1,5 @@
 const { db } = require("../../db");
+const { normalizarProveedor } = require("./cuentas-financieras");
 
 const ROLES_FINANCIEROS = ["finanzas_admin", "finanzas_operador", "finanzas_lector", "finanzas_personal_propietario", "finanzas_auditor_personal"];
 const ESTADOS = ["activa", "bloqueada", "inactiva"];
@@ -69,6 +70,9 @@ const crearEntidadFundacion = db.transaction(({ codigo, nombre, tipo, fechaInici
 function listarEntidadesParaUsuario(usuarioId) {
   return db.prepare("SELECT e.*, a.rol_financiero FROM fin_entidades_economicas e JOIN fin_accesos_entidad a ON a.entidad_id = e.id WHERE a.usuario_id = ? AND a.estado = 'activa' AND e.estado <> 'inactiva' ORDER BY e.nombre").all(usuarioId);
 }
+function listarPropietarios() {
+  return db.prepare("SELECT * FROM fin_propietarios ORDER BY nombre, id").all();
+}
 function exigirAcceso(entidadId, usuarioId, roles = ROLES_FINANCIEROS) {
   const acceso = db.prepare("SELECT a.*, e.es_personal, e.estado AS entidad_estado FROM fin_accesos_entidad a JOIN fin_entidades_economicas e ON e.id = a.entidad_id WHERE a.usuario_id = ? AND a.entidad_id = ? AND a.estado = 'activa'").get(usuarioId, entidadId);
   if (!acceso || !roles.includes(acceso.rol_financiero)) throw fallo("No tienes acceso financiero a esta entidad", 403);
@@ -103,16 +107,33 @@ const crearCuentaPlan = db.transaction(({ entidadId, codigo, nombre, naturaleza,
     .run(entidadId, String(codigo).trim(), String(nombre).trim(), naturaleza, subtipo, permiteMovimiento ? 1 : 0, usuarioId, usuarioId).lastInsertRowid);
   const registro = db.prepare("SELECT * FROM fin_plan_cuentas WHERE id = ?").get(id); auditar({ entidadId, usuarioId, accion: "crear", tabla: "fin_plan_cuentas", id, despues: registro }); return registro;
 });
-const crearCuentaFinanciera = db.transaction(({ entidadId, cuentaContableId, codigo, nombre, tipo, titularLegal, custodioPropietarioId, custodioEntidadId, referenciaExterna, usuarioId }) => {
+const crearCuentaFinanciera = db.transaction(({ entidadId, cuentaContableId, codigo, nombre, tipo, proveedor, titularLegal, custodioPropietarioId, custodioEntidadId, referenciaExterna, usuarioId }) => {
   entidadId = validarId(entidadId, "entidad_id"); cuentaContableId = validarId(cuentaContableId, "cuenta_contable_id");
   entidadActiva(entidadId); if (!String(codigo || "").trim() || !String(nombre || "").trim()) throw fallo("codigo y nombre son obligatorios");
   if (!TIPOS_CUENTA_FINANCIERA.includes(tipo)) throw fallo("tipo de cuenta financiera inválido");
+  proveedor = normalizarProveedor(tipo, proveedor);
   if (custodioPropietarioId != null) custodioPropietarioId = validarId(custodioPropietarioId, "custodio_propietario_id");
   if (custodioEntidadId != null) custodioEntidadId = validarId(custodioEntidadId, "custodio_entidad_id");
   if (custodioPropietarioId && custodioEntidadId) throw fallo("Una cuenta solo puede tener un tipo de custodio");
-  const id = Number(db.prepare("INSERT INTO fin_cuentas_financieras (entidad_id, cuenta_contable_id, codigo, nombre, tipo, titular_legal, custodio_propietario_id, custodio_entidad_id, referencia_externa, creado_por, actualizado_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(entidadId, cuentaContableId, String(codigo).trim(), String(nombre).trim(), tipo, titularLegal || null, custodioPropietarioId || null, custodioEntidadId || null, referenciaExterna || null, usuarioId, usuarioId).lastInsertRowid);
+  const id = Number(db.prepare("INSERT INTO fin_cuentas_financieras (entidad_id, cuenta_contable_id, codigo, nombre, tipo, proveedor, titular_legal, custodio_propietario_id, custodio_entidad_id, referencia_externa, creado_por, actualizado_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(entidadId, cuentaContableId, String(codigo).trim(), String(nombre).trim(), tipo, proveedor, titularLegal || null, custodioPropietarioId || null, custodioEntidadId || null, referenciaExterna || null, usuarioId, usuarioId).lastInsertRowid);
   const registro = db.prepare("SELECT * FROM fin_cuentas_financieras WHERE id = ?").get(id); auditar({ entidadId, usuarioId, accion: "crear", tabla: "fin_cuentas_financieras", id, despues: registro }); return registro;
+});
+const actualizarCuentaFinanciera = db.transaction(({ entidadId, id, cuentaContableId, codigo, nombre, tipo, proveedor, titularLegal, custodioPropietarioId, custodioEntidadId, referenciaExterna, usuarioId }) => {
+  entidadId = validarId(entidadId, "entidad_id"); id = validarId(id, "id"); cuentaContableId = validarId(cuentaContableId, "cuenta_contable_id");
+  const antes = db.prepare("SELECT * FROM fin_cuentas_financieras WHERE id=? AND entidad_id=?").get(id, entidadId);
+  if (!antes) throw fallo("Cuenta financiera no encontrada", 404);
+  if (!String(codigo || "").trim() || !String(nombre || "").trim()) throw fallo("codigo y nombre son obligatorios");
+  if (!TIPOS_CUENTA_FINANCIERA.includes(tipo)) throw fallo("tipo de cuenta financiera inválido");
+  proveedor = normalizarProveedor(tipo, proveedor);
+  if (custodioPropietarioId != null) custodioPropietarioId = validarId(custodioPropietarioId, "custodio_propietario_id");
+  if (custodioEntidadId != null) custodioEntidadId = validarId(custodioEntidadId, "custodio_entidad_id");
+  if (custodioPropietarioId && custodioEntidadId) throw fallo("Una cuenta solo puede tener un tipo de custodio");
+  db.prepare(`UPDATE fin_cuentas_financieras SET cuenta_contable_id=?,codigo=?,nombre=?,tipo=?,proveedor=?,titular_legal=?,custodio_propietario_id=?,custodio_entidad_id=?,referencia_externa=?,actualizado_por=?,actualizado_en=datetime('now') WHERE id=?`)
+    .run(cuentaContableId, String(codigo).trim(), String(nombre).trim(), tipo, proveedor, titularLegal || null, custodioPropietarioId || null, custodioEntidadId || null, referenciaExterna || null, usuarioId, id);
+  const despues = db.prepare("SELECT * FROM fin_cuentas_financieras WHERE id=?").get(id);
+  auditar({ entidadId, usuarioId, accion: "actualizar", tabla: "fin_cuentas_financieras", id, antes, despues });
+  return despues;
 });
 const crearBolsillo = db.transaction(({ entidadId, codigo, nombre, tipo, permiteSaldoNegativo = false, usuarioId }) => {
   entidadId = validarId(entidadId, "entidad_id");
@@ -158,4 +179,4 @@ const cerrarPeriodo = db.transaction(({ entidadId, periodoId, usuarioId }) => {
   db.prepare("UPDATE fin_periodos SET estado = 'cerrado', cerrado_por = ?, cerrado_en = datetime('now'), actualizado_por = ?, actualizado_en = datetime('now') WHERE id = ?").run(usuarioId, usuarioId, periodoId);
   const despues = db.prepare("SELECT * FROM fin_periodos WHERE id = ?").get(periodoId); auditar({ entidadId, usuarioId, accion: "cerrar_periodo", tabla: "fin_periodos", id: periodoId, antes, despues }); return despues;
 });
-module.exports = { ROLES_FINANCIEROS, crearEntidadFundacion, listarEntidadesParaUsuario, exigirAcceso, crearPropietario, crearParticipacion, crearCuentaPlan, crearCuentaFinanciera, crearBolsillo, otorgarAcceso, cambiarEstadoCatalogo, listarPorEntidad, cerrarPeriodo };
+module.exports = { ROLES_FINANCIEROS, crearEntidadFundacion, listarEntidadesParaUsuario, listarPropietarios, exigirAcceso, crearPropietario, crearParticipacion, crearCuentaPlan, crearCuentaFinanciera, actualizarCuentaFinanciera, crearBolsillo, otorgarAcceso, cambiarEstadoCatalogo, listarPorEntidad, cerrarPeriodo };

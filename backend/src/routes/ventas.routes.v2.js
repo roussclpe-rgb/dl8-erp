@@ -8,6 +8,7 @@ const caja = require("../services/caja");
 const { emitirVenta, buscarVentaIdempotente } = require("../services/finanzas/ventas");
 const { registrarCobrosVenta, buscarPagoIdempotente, saldoDocumento, anularVentaSinCobros } = require("../services/finanzas/cobros-cxc");
 const { hashCanonico } = require("../services/finanzas/idempotencia");
+const catalogos = require("../services/finanzas/catalogos");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -29,6 +30,16 @@ function hashPagoHttp(ventaId, pagos, turnoCajaId) {
   return hashCanonico({ venta_id: Number(ventaId), pagos, turno_caja_id: turnoCajaId || null });
 }
 
+function entidadSolicitada(req) {
+  if (req.query.entidad_id == null || req.query.entidad_id === "") return null;
+  const entidadId = Number(req.query.entidad_id);
+  if (!Number.isSafeInteger(entidadId) || entidadId <= 0) {
+    const error = new Error("entidad_id debe ser un ID positivo"); error.status = 400; throw error;
+  }
+  catalogos.exigirAcceso(entidadId, req.usuario.id);
+  return entidadId;
+}
+
 // Si la venta/cobro trae un turno_caja_id, exige que ese turno esté abierto
 // ANTES de tocar la base de datos (falla rápido, con mensaje claro, en vez
 // de abortar a mitad de una transacción de venta ya iniciada).
@@ -43,7 +54,14 @@ function validarTurnoSiAplica(turnoCajaId) {
   return turno;
 }
 router.get("/", (req, res) => {
-  const ventas = db.prepare(`
+  let entidadId;
+  try { entidadId = entidadSolicitada(req); } catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+  const ventas = entidadId ? db.prepare(`
+    SELECT v.*, c.nombre AS cliente_nombre
+    FROM ventas v JOIN clientes c ON c.id = v.cliente_id JOIN fin_documentos_cxc d ON d.venta_id=v.id
+    WHERE v.anulado = 0 AND d.entidad_id=?
+    ORDER BY v.fecha DESC, v.id DESC
+  `).all(entidadId) : db.prepare(`
     SELECT v.*, c.nombre AS cliente_nombre
     FROM ventas v JOIN clientes c ON c.id = v.cliente_id
     WHERE v.anulado = 0
@@ -53,7 +71,13 @@ router.get("/", (req, res) => {
 });
 
 router.get("/pendientes", (req, res) => {
-  const ventas = db.prepare(`
+  let entidadId;
+  try { entidadId = entidadSolicitada(req); } catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+  const ventas = entidadId ? db.prepare(`
+    SELECT v.*, c.nombre AS cliente_nombre
+    FROM ventas v JOIN clientes c ON c.id = v.cliente_id JOIN fin_documentos_cxc d ON d.venta_id=v.id
+    WHERE v.anulado = 0 AND d.entidad_id=?
+  `).all(entidadId) : db.prepare(`
     SELECT v.*, c.nombre AS cliente_nombre
     FROM ventas v JOIN clientes c ON c.id = v.cliente_id
     WHERE v.anulado = 0
@@ -139,8 +163,6 @@ for (const it of items) {
 router.post("/:id/anular", requireRole("admin"), (req, res) => {
   const venta = db.prepare("SELECT * FROM ventas WHERE id = ?").get(req.params.id);
   if (!venta) return res.status(404).json({ error: "No existe" });
-  if (venta.anulado) return res.status(409).json({ error: "Esta venta ya estaba anulada" });
-
   if (db.prepare("SELECT 1 FROM fin_documentos_cxc WHERE venta_id=?").get(venta.id)) {
     try {
       return res.json(anularVentaSinCobros({ ventaId: venta.id, usuarioId: req.usuario.id }));
@@ -148,6 +170,8 @@ router.post("/:id/anular", requireRole("admin"), (req, res) => {
       return res.status(e.status || 400).json({ error: e.status ? e.message : "No se pudo anular la venta" });
     }
   }
+
+  if (venta.anulado) return res.status(409).json({ error: "Esta venta ya estaba anulada" });
 
   try {
     exigirPeriodoAbierto(venta.fecha);

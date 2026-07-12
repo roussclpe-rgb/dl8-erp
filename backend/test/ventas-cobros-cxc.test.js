@@ -8,16 +8,20 @@ const { db } = require("../src/db");
 const { generarToken } = require("../src/auth");
 const catalogos = require("../src/services/finanzas/catalogos");
 const caja = require("../src/services/caja");
+const politicas = require("../src/services/finanzas/politicas");
+const motor = require("../src/services/finanzas/motor");
+const { anularVentaSinCobros } = require("../src/services/finanzas/cobros-cxc");
 
 const admin = Number(db.prepare("INSERT INTO usuarios(nombre,email,password_hash,rol_id)VALUES('Cobros','cobros@test','x',1)").run().lastInsertRowid);
 const auth = generarToken({ id: admin, nombre: "Cobros", rol_nombre: "admin" });
 const entidad = catalogos.crearEntidadFundacion({ codigo: "COBROS_CXC", nombre: "Cobros CxC", tipo: "empresa", fechaInicial: "2026-07-01", usuarioId: admin }).entidad;
-const cuenta = (codigoPlan, codigo, nombre, tipo) => {
+const cuenta = (codigoPlan, codigo, nombre, tipo, proveedor) => {
   const plan = db.prepare("SELECT id FROM fin_plan_cuentas WHERE entidad_id=? AND codigo=?").get(entidad.id, codigoPlan);
-  return catalogos.crearCuentaFinanciera({ entidadId: entidad.id, cuentaContableId: plan.id, codigo, nombre, tipo, usuarioId: admin });
+  return catalogos.crearCuentaFinanciera({ entidadId: entidad.id, cuentaContableId: plan.id, codigo, nombre, tipo, proveedor, usuarioId: admin });
 };
 const cuentaCaja = cuenta("1101", "CAJA_CXC", "Caja CxC", "caja");
-const billetera = cuenta("1103", "WALLET_CXC", "Billetera CxC", "billetera");
+const billetera = cuenta("1103", "WALLET_CXC", "Billetera CxC", "billetera", "yape");
+const plin = cuenta("1103", "PLIN_CXC", "Plin CxC", "billetera", "plin");
 const banco = cuenta("1102", "BANCO_CXC", "Banco CxC", "banco");
 const procesador = cuenta("1105", "PROC_CXC", "Procesador CxC", "procesador");
 const cajaId = Number(db.prepare("INSERT INTO cajas(nombre,entidad_id,cuenta_financiera_id)VALUES('Caja CxC',?,?)").run(entidad.id, cuentaCaja.id).lastInsertRowid);
@@ -82,7 +86,20 @@ test("pago mixto dirige cada medio a su cuenta y aplica la suma exacta", async (
   const doc = db.prepare("SELECT * FROM fin_documentos_cxc WHERE venta_id=?").get(x.data.id);
   assert.equal(db.prepare("SELECT SUM(importe_minor) n FROM fin_aplicaciones_cxc WHERE documento_cxc_id=?").get(doc.id).n, 10000);
   assert.deepEqual(db.prepare("SELECT cuenta_financiera_id FROM fin_cobros WHERE documento_cxc_id=? ORDER BY id").all(doc.id).map((r) => r.cuenta_financiera_id), [billetera.id, banco.id, procesador.id]);
+  const saldoYape = motor.saldos(entidad.id).tesoreria.find((item) => item.id === billetera.id);
+  assert.equal(saldoYape.proveedor, "yape");
+  assert.equal(saldoYape.saldo_minor, 2000);
   assert.equal(db.prepare("SELECT estado FROM fin_documentos_cxc WHERE id=?").get(doc.id).estado, "pagada");
+});
+
+test("un cobro Yape rechaza Plin y termina únicamente en la cuenta Yape", async () => {
+  const venta = await nuevaVenta();
+  const incorrecto = await pedir(`/api/ventas/${venta.data.id}/pagos`, { pagos: [{ monto: 10, metodoPago: "Yape", cuenta_financiera_id: plin.id }] }, `yape-plin-mal-${++secuencia}`);
+  assert.equal(incorrecto.status, 409);
+  const correcto = await pedir(`/api/ventas/${venta.data.id}/pagos`, { pagos: [{ monto: 10, metodoPago: "Yape", cuenta_financiera_id: billetera.id }] }, `yape-correcto-${++secuencia}`);
+  assert.equal(correcto.status, 200);
+  const cobro = db.prepare("SELECT cuenta_financiera_id FROM fin_cobros WHERE documento_cxc_id=? ORDER BY id DESC").get(venta.data.documento_cxc_id);
+  assert.equal(cobro.cuenta_financiera_id, billetera.id);
 });
 
 test("rechaza sobrepago, cuenta ausente y efectivo sin turno", async () => {
@@ -117,7 +134,7 @@ test("pago posterior es idempotente y rollback no deja registros parciales", asy
   assert.equal(db.prepare("SELECT COUNT(*) n FROM fin_cobros WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?)").get(y.data.id).n, 0);
 });
 
-test("anulación revierte emisión sin cobros y bloquea venta cobrada", async () => {
+test("anulación revierte emisión, cobros y reservas de una venta cobrada", async () => {
   const libre = await nuevaVenta();
   const anulada = await pedir(`/api/ventas/${libre.data.id}/anular`, {}, "anular-libre");
   assert.equal(anulada.status, 200);
@@ -126,8 +143,34 @@ test("anulación revierte emisión sin cobros y bloquea venta cobrada", async ()
   assert.ok(db.prepare("SELECT 1 FROM fin_eventos_financieros WHERE id=? AND tipo='reversion'").get(reversionId));
 
   const cobrada = await nuevaVenta([{ monto: 100, metodoPago: "Efectivo" }], turnoId);
-  const bloqueada = await pedir(`/api/ventas/${cobrada.data.id}/anular`, {}, "anular-cobrada");
-  assert.equal(bloqueada.status, 409);
+  const cobradaAnulada = await pedir(`/api/ventas/${cobrada.data.id}/anular`, {}, "anular-cobrada");
+  assert.equal(cobradaAnulada.status, 200);
+  const resultado = await cobradaAnulada.json();
+  assert.equal(resultado.reversiones_cobro.length, 1);
+  assert.equal(db.prepare("SELECT estado FROM fin_documentos_cxc WHERE venta_id=?").get(cobrada.data.id).estado, "anulada");
+  assert.equal(db.prepare("SELECT estado FROM fin_cobros WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?)").get(cobrada.data.id).estado, "revertido");
+  assert.equal(db.prepare("SELECT estado FROM fin_aplicaciones_cxc WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?)").get(cobrada.data.id).estado, "revertida");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM fin_eventos_financieros WHERE reversion_de_id IN(SELECT evento_financiero_id FROM fin_cobros WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?))").get(cobrada.data.id).n, 1);
+  const reintento = await pedir(`/api/ventas/${cobrada.data.id}/anular`, {}, "anular-cobrada-repetida");
+  assert.equal(reintento.status, 200);
+  assert.deepEqual(await reintento.json(), resultado);
+});
+
+test("anulación parcial neutraliza saldos y un fallo intermedio revierte toda la transacción", async () => {
+  const saldoAntes = motor.saldos(entidad.id).tesoreria.find((item) => item.id === billetera.id).saldo_minor;
+  const parcial = await nuevaVenta([{ monto: 40, metodoPago: "Yape", cuenta_financiera_id: billetera.id }]);
+  assert.equal((await pedir(`/api/ventas/${parcial.data.id}/anular`, {}, "anular-parcial")).status, 200);
+  assert.equal(motor.saldos(entidad.id).tesoreria.find((item) => item.id === billetera.id).saldo_minor, saldoAntes);
+  const lineasNetas = db.prepare(`SELECT pc.codigo,SUM(l.debe_minor-l.haber_minor) neto FROM fin_lineas_asiento l JOIN fin_asientos_contables a ON a.id=l.asiento_id JOIN fin_plan_cuentas pc ON pc.id=l.cuenta_contable_id WHERE a.evento_id IN (SELECT id FROM fin_eventos_financieros WHERE id IN ((SELECT evento_emision_id FROM fin_documentos_cxc WHERE venta_id=?),(SELECT evento_financiero_id FROM fin_cobros WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?))) OR reversion_de_id IN ((SELECT evento_emision_id FROM fin_documentos_cxc WHERE venta_id=?),(SELECT evento_financiero_id FROM fin_cobros WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?)))) GROUP BY pc.codigo`).all(parcial.data.id, parcial.data.id, parcial.data.id, parcial.data.id);
+  assert.equal(lineasNetas.every((item) => item.neto === 0), true);
+
+  const conFallo = await nuevaVenta([{ monto: 25, metodoPago: "Yape", cuenta_financiera_id: billetera.id }]);
+  const reversionesAntes = db.prepare("SELECT COUNT(*) n FROM fin_eventos_financieros WHERE tipo='reversion'").get().n;
+  assert.throws(() => anularVentaSinCobros({ ventaId: conFallo.data.id, usuarioId: admin, fallarDespuesDeRevertir: true }), /Fallo inducido/);
+  assert.equal(db.prepare("SELECT anulado FROM ventas WHERE id=?").get(conFallo.data.id).anulado, 0);
+  assert.equal(db.prepare("SELECT estado FROM fin_cobros WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?)").get(conFallo.data.id).estado, "confirmado");
+  assert.equal(db.prepare("SELECT estado FROM fin_aplicaciones_cxc WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?)").get(conFallo.data.id).estado, "confirmada");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM fin_eventos_financieros WHERE tipo='reversion'").get().n, reversionesAntes);
 });
 
 test("período financiero cerrado rechaza cobro", async () => {
@@ -136,6 +179,38 @@ test("período financiero cerrado rechaza cobro", async () => {
   const response = await pedir(`/api/ventas/${x.data.id}/pagos`, { pagos: [{ monto: 10, metodoPago: "Yape", cuenta_financiera_id: billetera.id }] }, "cerrado-cobro");
   assert.equal(response.status, 409);
   db.prepare("UPDATE fin_periodos SET estado='abierto' WHERE entidad_id=?").run(entidad.id);
+});
+
+test("flujo MPF se filtra por venta y conserva política, reglas y reversión auditables", async () => {
+  const bolsillo = catalogos.crearBolsillo({ entidadId: entidad.id, codigo: "FLUJO_MPF", nombre: "Flujo MPF", tipo: "operacion", usuarioId: admin });
+  politicas.crear({ entidadId: entidad.id, nombre: "Flujo auditable", usuarioId: admin, activar: true, predeterminada: true, reglas: [
+    { nombre: "Reserva de flujo", base: "ingreso", tipo: "porcentaje", valor_minor: 2500, bolsillo_id: bolsillo.id },
+  ] });
+  const venta = await nuevaVenta([{ monto: 100, metodoPago: "Yape", cuenta_financiera_id: billetera.id }]);
+  assert.equal(venta.response.status, 201);
+  const cobro = db.prepare("SELECT * FROM fin_cobros WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?)").get(venta.data.id);
+  const filas = politicas.listarFlujosDinero(entidad.id, { ventaId: venta.data.id, cobroId: cobro.id, desde: "2026-07-01", hasta: "2026-07-01" });
+  assert.equal(filas.length, 1);
+  assert.equal(filas[0].importe_ingreso_minor, 10000);
+  assert.equal(filas[0].estado, "confirmado");
+  assert.equal(politicas.listarFlujosDinero(entidad.id, { ventaId: venta.data.id + 999 }).length, 0);
+  const auditoria = politicas.auditoriaMpf(entidad.id, { ventaId: venta.data.id, politicaId: filas[0].politica_id, pagina: 1, porPagina: 1 });
+  assert.equal(auditoria.paginacion.total, 1);
+  assert.equal(auditoria.paginacion.por_pagina, 1);
+  assert.equal(auditoria.resultados[0].importe_base_minor, 10000);
+  assert.equal(auditoria.resultados[0].monto_minor, 2500);
+  assert.equal(auditoria.resultados[0].bolsillo, "Flujo MPF");
+  const detalle = politicas.flujoDineroEvento(entidad.id, cobro.evento_financiero_id);
+  assert.equal(detalle.politica.version, 1);
+  assert.equal(detalle.politica.reglas[0].valor_minor, 2500);
+  assert.equal(detalle.distribuciones[0].importe_minor, 2500);
+  assert.equal(motor.saldos(entidad.id).bolsillos.find((item) => item.id === bolsillo.id).saldo_minor, 2500);
+  const anulacion = await pedir(`/api/ventas/${venta.data.id}/anular`, {}, "anular-flujo-mpf");
+  assert.equal(anulacion.status, 200);
+  assert.equal(politicas.listarFlujosDinero(entidad.id, { cobroId: cobro.id })[0].estado, "revertido");
+  assert.ok(politicas.flujoDineroEvento(entidad.id, cobro.evento_financiero_id).reversion);
+  assert.equal(politicas.auditoriaMpf(entidad.id, { cobroId: cobro.id, tipoEvento: "reversion" }).resultados[0].estado, "revertido");
+  assert.equal(motor.saldos(entidad.id).bolsillos.find((item) => item.id === bolsillo.id).saldo_minor, 0);
 });
 
 test("restricciones SQL protegen vínculos, inmutabilidad y reversión de dominio", async () => {

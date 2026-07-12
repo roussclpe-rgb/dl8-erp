@@ -12,9 +12,12 @@ db.exec(schema);
 
 try {
   require("./migrations/pagos-cxc-compat").prepararCompatibilidadPagosCxC(db);
+  require("./migrations/cuentas-financieras-proveedor").migrarProveedorCuentaFinanciera(db);
+  require("./migrations/cxc-estados-reversion").migrarEstadosReversionCxc(db);
   const esquemaFinanzas = fs.readFileSync(path.join(__dirname, "..", "finanzas-schema.sql"), "utf8");
   db.exec(esquemaFinanzas);
   require("./migrations/fin-eventos-caja").migrarTiposEventosCaja(db);
+  require("./migrations/mpf-invariantes").migrarInvariantesMpf(db);
 } catch (e) {
   db.close();
   throw new Error("No se pudo cargar el esquema financiero. Revisa backend/finanzas-schema.sql.");
@@ -94,6 +97,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS correcciones_cxp_claves_idempotencia (
   id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_id INTEGER NOT NULL REFERENCES usuarios(id), clave TEXT NOT NULL,
   hash_payload TEXT NOT NULL, respuesta_json TEXT NOT NULL, creado_en TEXT NOT NULL DEFAULT(datetime('now')), UNIQUE(usuario_id,clave)
 )`);
+db.exec(`CREATE TABLE IF NOT EXISTS movimientos_manuales_claves_idempotencia (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_id INTEGER NOT NULL REFERENCES usuarios(id), clave TEXT NOT NULL,
+  hash_payload TEXT NOT NULL, respuesta_json TEXT NOT NULL, creado_en TEXT NOT NULL DEFAULT(datetime('now')), UNIQUE(usuario_id,clave)
+)`);
+require("./migrations/venta-item-costos").migrarVentaItemCostos(db);
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_cajas_cuenta_financiera_activa ON cajas(cuenta_financiera_id) WHERE activo = 1 AND cuenta_financiera_id IS NOT NULL");
 db.exec(`
   CREATE TRIGGER IF NOT EXISTS trg_cajas_cuenta_financiera_insert

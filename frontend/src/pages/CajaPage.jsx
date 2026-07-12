@@ -5,6 +5,7 @@ import PageHeader from "../components/PageHeader";
 import CajaActualTab from "../components/caja/CajaActualTab";
 import HistorialTurnosTab from "../components/caja/HistorialTurnosTab";
 import CajasAdminTab from "../components/caja/CajasAdminTab";
+import TransferenciasCajaTab from "../components/caja/TransferenciasCajaTab";
 import { useAuth } from "../context/AuthContext";
 
 export default function CajaPage() {
@@ -19,12 +20,14 @@ export default function CajaPage() {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3 }}>
         <Tab label="Caja actual" />
         <Tab label="Historial de turnos" />
+        <Tab label="Transferencias" />
         {esAdmin && <Tab label="Cajas" />}
       </Tabs>
 
       {tab === 0 && <CajaActualTab />}
       {tab === 1 && <HistorialTurnosTab />}
-      {tab === 2 && esAdmin && <CajasAdminTab />}
+      {tab === 2 && <TransferenciasCajaTab />}
+      {tab === 3 && esAdmin && <CajasAdminTab />}
     </Box>
   );
 }

@@ -154,6 +154,6 @@ router.get("/movimientos", (req, res) => {
   try { res.json(caja.movimientosTurno(turno_id)); } catch (e) { res.status(e.status || 400).json({ error: e.message }); }
 });
 
-router.post('/transferencias', requireRole('admin','operador','vendedor'), (req,res) => { try { const evento=caja.transferirEntreCajas({cajaOrigenId:req.body.caja_origen_id,cajaDestinoId:req.body.caja_destino_id,monto:req.body.monto,bolsilloOrigenId:req.body.bolsillo_origen_id,bolsilloDestinoId:req.body.bolsillo_destino_id,usuarioId:req.usuario.id,fechaEfectiva:req.body.fecha,clave:req.get('Idempotency-Key')}); res.status(201).json({evento_financiero_id:evento.id}); } catch(e) { res.status(e.status||400).json({error:e.message}); } });
+router.post('/transferencias', requireRole('admin','operador','vendedor'), (req,res) => { try { const evento=caja.transferirEntreCajas({cajaOrigenId:req.body.caja_origen_id,cajaDestinoId:req.body.caja_destino_id,monto:req.body.monto,bolsilloOrigenId:req.body.bolsillo_origen_id,bolsilloDestinoId:req.body.bolsillo_destino_id,concepto:req.body.concepto,usuarioId:req.usuario.id,fechaEfectiva:req.body.fecha,clave:req.get('Idempotency-Key')}); res.status(201).json({evento_financiero_id:evento.id}); } catch(e) { res.status(e.status||400).json({error:e.message}); } });
 
 module.exports = router;

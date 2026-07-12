@@ -29,6 +29,25 @@ function buscarVentaIdempotente({ usuarioId, clave, payload }) {
   return ventaIdempotente({ usuarioId, clave, hashPayload: hashCanonico(payload) });
 }
 
+function congelarCostosVenta(ventaId, fecha) {
+  const items = db.prepare('SELECT * FROM venta_items WHERE venta_id=?').all(ventaId);
+  const insertar = db.prepare('INSERT INTO venta_item_costos(venta_item_id,produccion_id,cantidad,costo_unidad) VALUES(?,?,?,?)');
+  for (const item of items) {
+    let porAsignar = Number(item.cantidad);
+    let saltar = db.prepare(`SELECT COALESCE(SUM(vi.cantidad),0) total FROM venta_items vi JOIN ventas v ON v.id=vi.venta_id
+      WHERE vi.receta_grupo_id=? AND v.anulado=0 AND v.id<?`).get(item.receta_grupo_id, ventaId).total;
+    const producciones = db.prepare(`SELECT p.* FROM producciones p JOIN recetas r ON r.id=p.receta_id
+      WHERE r.grupo_id=? AND p.anulado=0 AND p.fecha<=? ORDER BY p.fecha,p.id`).all(item.receta_grupo_id, fecha);
+    for (const produccion of producciones) {
+      if (porAsignar <= 0) break;
+      if (saltar >= produccion.unidades_producidas) { saltar -= produccion.unidades_producidas; continue; }
+      const disponible = produccion.unidades_producidas - saltar; saltar = 0;
+      const tomar = Math.min(porAsignar, disponible);
+      insertar.run(item.id, produccion.id, tomar, produccion.costo_unidad); porAsignar -= tomar;
+    }
+  }
+}
+
 const emitirVenta = db.transaction(({ entidadId, usuarioId, fecha, cliente, periodoId, items, descuentoTipo, descuentoValor, pagos, turnoCajaId, claveIdempotencia, payloadIdempotencia, registrarPagos, calcularVenta }) => {
   catalogos.exigirAcceso(entidadId, usuarioId, ["finanzas_admin", "finanzas_operador", "finanzas_personal_propietario"]);
   const hashPayload = claveIdempotencia ? hashCanonico(payloadIdempotencia) : null;
@@ -43,6 +62,7 @@ const emitirVenta = db.transaction(({ entidadId, usuarioId, fecha, cliente, peri
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(folio, fecha, cliente.id, periodoId, subtotal, descuentoMonto > 0 ? descuentoTipo : null, descuentoMonto > 0 ? Number(descuentoValor) : 0, total, usuarioId).lastInsertRowid);
   const insertarItem = db.prepare("INSERT INTO venta_items (venta_id, receta_grupo_id, nombre_producto, cantidad, precio_unitario, subtotal) VALUES (?, ?, ?, ?, ?, ?)");
   itemsCalculados.forEach((item) => insertarItem.run(ventaId, item.receta_grupo_id, item.nombre_producto, item.cantidad, item.precioUnitario, item.subtotal));
+  congelarCostosVenta(ventaId, fecha);
 
   const evento = motor.ejecutar({
     entidadId, tipo: "emision_venta", fecha, descripcion: `Emisión venta folio ${folio}`, usuarioId,

@@ -3,6 +3,7 @@ const catalogos = require("./catalogos");
 const motor = require("./motor");
 const { aMinorPEN } = require("./montos");
 const { hashCanonico } = require("./idempotencia");
+const { compatibilidadMetodo, cuentaCompatible } = require("./cuentas-financieras");
 
 const fallo = (message, status = 400) => Object.assign(new Error(message), { status });
 const fechaHoy = () => new Date().toISOString().slice(0, 10);
@@ -29,14 +30,12 @@ function saldoDocumento(documentoId) {
 }
 
 function cuentaOrigen({ entidadId, metodoPago, cuentaFinancieraId, turnoCajaId }) {
-  const tipos = { Efectivo: "caja", Yape: "billetera", Plin: "billetera", Transferencia: "banco", Tarjeta: "procesador" };
-  const tipo = tipos[metodoPago];
-  if (!tipo) throw fallo("Método de pago no soportado");
+  const esperado = compatibilidadMetodo(metodoPago);
   if (!cuentaFinancieraId) throw fallo("Selecciona una cuenta financiera de origen", 409);
   const cuenta = db.prepare(`SELECT cf.*,pc.id cuenta_contable_id FROM fin_cuentas_financieras cf
     JOIN fin_plan_cuentas pc ON pc.id=cf.cuenta_contable_id
-    WHERE cf.id=? AND cf.entidad_id=? AND cf.tipo=? AND cf.estado='activa'`).get(cuentaFinancieraId, entidadId, tipo);
-  if (!cuenta) throw fallo("La cuenta financiera no pertenece a la entidad o no coincide con el método", 409);
+    WHERE cf.id=? AND cf.entidad_id=? AND cf.tipo=? AND cf.estado='activa'`).get(cuentaFinancieraId, entidadId, esperado.tipo);
+  if (!cuenta || !cuentaCompatible(cuenta, metodoPago)) throw fallo("La cuenta financiera no pertenece a la entidad o no coincide con el proveedor del método", 409);
   if (metodoPago !== "Efectivo") {
     if (turnoCajaId) throw fallo("Solo el efectivo puede vincularse a un turno de caja");
     return { cuenta, turnoId: null };

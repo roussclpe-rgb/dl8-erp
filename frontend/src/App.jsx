@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -18,6 +19,17 @@ import ConfigCostosPage from "./pages/ConfigCostosPage";
 import UsuariosPage from "./pages/UsuariosPage";
 import VentasPage from "./pages/VentasPage";
 import CajaPage from "./pages/CajaPage";
+const FinanzasPage = lazy(() => import("./pages/FinanzasPage"));
+const PoliticasFinancierasPage = lazy(() => import("./pages/PoliticasFinancierasPage"));
+const MovimientosEspecialesPage = lazy(() => import("./pages/MovimientosEspecialesPage"));
+const DondeEstaMiDineroPage = lazy(() => import("./pages/DondeEstaMiDineroPage"));
+const FlujoDineroPage = lazy(() => import("./pages/FlujoDineroPage"));
+const AuditoriaFinancieraPage = lazy(() => import("./pages/AuditoriaFinancieraPage"));
+const MetasFinancierasPage = lazy(() => import("./pages/MetasFinancierasPage"));
+const AlertasFinancierasPage = lazy(() => import("./pages/AlertasFinancierasPage"));
+const EscenariosFinancierosPage = lazy(() => import("./pages/EscenariosFinancierosPage"));
+const PrediccionesFinancierasPage = lazy(() => import("./pages/PrediccionesFinancierasPage"));
+const diferida = (Pagina) => <Suspense fallback={<div role="status">Cargando módulo…</div>}><Pagina /></Suspense>;
 
 export default function App() {
   return (
@@ -38,6 +50,16 @@ export default function App() {
         <Route path="compras" element={<ComprasPage />} />
         <Route path="ventas" element={<VentasPage />} />
         <Route path="caja" element={<CajaPage />} />
+        <Route path="finanzas" element={diferida(FinanzasPage)} />
+        <Route path="politicas-financieras" element={diferida(PoliticasFinancierasPage)} />
+        <Route path="movimientos-especiales" element={diferida(MovimientosEspecialesPage)} />
+        <Route path="donde-esta-mi-dinero" element={diferida(DondeEstaMiDineroPage)} />
+        <Route path="flujo-dinero" element={diferida(FlujoDineroPage)} />
+        <Route path="auditoria-financiera" element={diferida(AuditoriaFinancieraPage)} />
+        <Route path="metas-financieras" element={diferida(MetasFinancierasPage)} />
+        <Route path="alertas-financieras" element={diferida(AlertasFinancierasPage)} />
+        <Route path="escenarios-financieros" element={diferida(EscenariosFinancierosPage)} />
+        <Route path="predicciones-financieras" element={diferida(PrediccionesFinancierasPage)} />
         <Route path="ajustes" element={<AjustesPage />} />
         <Route path="recetas" element={<RecetasPage />} />
         <Route path="producciones" element={<ProduccionesPage />} />

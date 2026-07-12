@@ -24,14 +24,17 @@ import BlockIcon from "@mui/icons-material/BlockOutlined";
 
 import DataTable from "../DataTable";
 import ConfirmDialog from "../ConfirmDialog";
+import FormDialog from "../FormDialog";
 import { useAuth } from "../../context/AuthContext";
 import { useCajaActiva } from "../../hooks/useCajaActiva";
 import { useNotify } from "../../hooks/useNotify";
+import { cuentaCompatibleConMetodo } from "../../utils/cuentasFinancieras";
 import {
   listarClientes,
   listarProductosVenta,
   crearVenta,
   listarVentas,
+  obtenerVenta,
   anularVenta,
   listarEntidadesFinancieras,
   listarCuentasFinancieras,
@@ -58,6 +61,8 @@ const schema = z.object({
         cuenta_financiera_id: z.coerce.number().positive().optional().or(z.literal("")),
     })
   ),
+  descuento_tipo: z.enum(["monto", "porcentaje"]).default("monto"),
+  descuento_valor: z.coerce.number().min(0, "Debe ser 0 o mayor").default(0),
 });
 
 const defaultValues = {
@@ -66,6 +71,8 @@ const defaultValues = {
   fecha: dayjs().format("YYYY-MM-DD"),
   items: [{ receta_grupo_id: undefined, cantidad: 1 }],
   pagos: [],
+  descuento_tipo: "monto",
+  descuento_valor: 0,
 };
 
 export default function VenderTab() {
@@ -83,6 +90,7 @@ export default function VenderTab() {
   const [saving, setSaving] = useState(false);
   const [toAnular, setToAnular] = useState(null);
   const [anulando, setAnulando] = useState(false);
+  const [ventaDetalle, setVentaDetalle] = useState(null);
 
   const {
     control,
@@ -132,9 +140,9 @@ export default function VenderTab() {
     cargarVentas();
   }, [cargarBase, cargarVentas]);
 
-  // Total en vivo, calculado con el precio del cliente seleccionado.
+  // Subtotal en vivo, calculado con el precio del cliente seleccionado.
   const clienteSeleccionado = clientes.find((c) => c.id === watch("cliente_id"));
-  const total = useMemo(() => {
+  const subtotal = useMemo(() => {
     if (!clienteSeleccionado) return 0;
     return (watchItems || []).reduce((acc, it) => {
       const producto = productos.find((p) => p.receta_grupo_id === it.receta_grupo_id);
@@ -143,6 +151,16 @@ export default function VenderTab() {
       return acc + precio * Number(it.cantidad);
     }, 0);
   }, [watchItems, productos, clienteSeleccionado]);
+
+  const watchDescuentoTipo = watch("descuento_tipo");
+  const watchDescuentoValor = watch("descuento_valor");
+  const descuentoMonto = useMemo(() => {
+    const valor = Number(watchDescuentoValor) || 0;
+    if (valor <= 0) return 0;
+    return watchDescuentoTipo === "porcentaje" ? subtotal * (Math.min(valor, 100) / 100) : Math.min(valor, subtotal);
+  }, [watchDescuentoTipo, watchDescuentoValor, subtotal]);
+
+  const total = Math.max(subtotal - descuentoMonto, 0);
 
   const totalPagado = (watchPagos || []).reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
 
@@ -178,6 +196,14 @@ export default function VenderTab() {
       notify.error(e);
     } finally {
       setAnulando(false);
+    }
+  };
+
+  const verVenta = async (venta) => {
+    try {
+      setVentaDetalle(await obtenerVenta(venta.id));
+    } catch (e) {
+      notify.error(e);
     }
   };
 
@@ -344,6 +370,37 @@ export default function VenderTab() {
             <Divider sx={{ my: 3 }} />
 
             <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
+              Descuento (opcional)
+            </Typography>
+            <Grid container spacing={2} sx={{ mb: 1 }}>
+              <Grid item xs={6} sm={4}>
+                <Controller
+                  name="descuento_tipo"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField select label="Tipo" fullWidth {...field}>
+                      <MenuItem value="monto">Monto (S/)</MenuItem>
+                      <MenuItem value="porcentaje">Porcentaje (%)</MenuItem>
+                    </TextField>
+                  )}
+                />
+              </Grid>
+              <Grid item xs={6} sm={4}>
+                <TextField
+                  label={watchDescuentoTipo === "porcentaje" ? "Descuento (%)" : "Descuento (S/)"}
+                  type="number"
+                  fullWidth
+                  inputProps={{ step: "0.01", min: "0" }}
+                  {...register("descuento_valor")}
+                  error={!!errors.descuento_valor}
+                  helperText={errors.descuento_valor?.message}
+                />
+              </Grid>
+            </Grid>
+
+            <Divider sx={{ my: 3 }} />
+
+            <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
               Pagos (opcional — puedes dejarlo a crédito y cobrar después)
             </Typography>
             <Stack spacing={2}>
@@ -382,7 +439,7 @@ export default function VenderTab() {
                         render={({ field: f }) => (
                           <TextField select label="Cuenta receptora" fullWidth {...f}>
                             {cuentasFinancieras
-                              .filter((cuenta) => ({ Yape: "billetera", Plin: "billetera", Transferencia: "banco", Tarjeta: "procesador" }[watchPagos?.[index]?.metodoPago] === cuenta.tipo))
+                              .filter((cuenta) => cuentaCompatibleConMetodo(cuenta, watchPagos?.[index]?.metodoPago))
                               .map((cuenta) => <MenuItem key={cuenta.id} value={cuenta.id}>{cuenta.nombre}</MenuItem>)}
                           </TextField>
                         )}
@@ -411,7 +468,9 @@ export default function VenderTab() {
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Box>
                 <Typography variant="body2" color="text.secondary">
-                  Total: <strong>S/ {total.toFixed(2)}</strong> · Pagado: S/ {totalPagado.toFixed(2)} · Saldo:{" "}
+                  Subtotal: S/ {subtotal.toFixed(2)}
+                  {descuentoMonto > 0 && <> · Descuento: -S/ {descuentoMonto.toFixed(2)}</>}
+                  {" "}· <strong>Total: S/ {total.toFixed(2)}</strong> · Pagado: S/ {totalPagado.toFixed(2)} · Saldo:{" "}
                   <strong>S/ {Math.max(total - totalPagado, 0).toFixed(2)}</strong>
                 </Typography>
               </Box>
@@ -426,7 +485,7 @@ export default function VenderTab() {
       <Typography variant="h6" sx={{ mb: 2, fontWeight: 700 }}>
         Ventas recientes
       </Typography>
-      <DataTable columns={columnsVentas} rows={ventas} loading={loadingVentas} searchPlaceholder="Buscar venta…" defaultOrderBy="fecha" />
+      <DataTable columns={columnsVentas} rows={ventas} loading={loadingVentas} searchPlaceholder="Buscar venta…" defaultOrderBy="fecha" onRowClick={verVenta} />
 
       <ConfirmDialog
         open={!!toAnular}
@@ -438,6 +497,9 @@ export default function VenderTab() {
         onClose={() => setToAnular(null)}
         onConfirm={confirmarAnular}
       />
+      <FormDialog open={!!ventaDetalle} onClose={() => setVentaDetalle(null)} title={ventaDetalle ? `Venta ${ventaDetalle.folio}` : "Detalle de venta"} maxWidth="md">
+        <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{JSON.stringify(ventaDetalle, null, 2)}</Box>
+      </FormDialog>
     </Box>
   );
 }

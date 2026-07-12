@@ -1,8 +1,11 @@
-import { useEffect, useState, useCallback } from "react";
+﻿import { useEffect, useState, useCallback } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Box, Grid, TextField, MenuItem, Button, Stack, IconButton, Tooltip, Alert } from "@mui/material";
+import {
+  Box, Grid, TextField, MenuItem, Button, Stack, IconButton, Tooltip, Alert,
+  ToggleButtonGroup, ToggleButton,
+} from "@mui/material";
 import EditIcon from "@mui/icons-material/EditOutlined";
 
 import PageHeader from "../components/PageHeader";
@@ -31,13 +34,17 @@ export default function ProduccionesPage() {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
 
+  const [modoCantidad, setModoCantidad] = useState("tandas");
+  const [unidadesDeseadas, setUnidadesDeseadas] = useState("");
+
   const {
-    register,
-    handleSubmit,
-    control,
-    reset,
+    register, handleSubmit, control, reset, watch, setValue,
     formState: { errors },
   } = useForm({ resolver: zodResolver(schema), defaultValues });
+
+  const recetaId = watch("receta_id");
+  const tandasValue = watch("tandas");
+  const recetaSeleccionada = recetas.find((r) => r.id === recetaId);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -56,15 +63,46 @@ export default function ProduccionesPage() {
     cargar();
   }, [cargar]);
 
+  // Calculo puro: no depende de "tandas" ni de nada que el propio calculo
+  // modifique, asi que no puede haber retroalimentacion ni doble division.
+  const calcularTandasDesdeUnidades = (unidades, receta) => {
+    const n = Number(unidades);
+    if (!receta || !unidades || !Number.isFinite(n) || n <= 0) return 0;
+    return n / receta.rendimiento;
+  };
+
+  // Se ejecuta solo en el evento de escritura, nunca en un efecto reactivo.
+  const handleUnidadesChange = (e) => {
+    const valorTecleado = e.target.value;
+    setUnidadesDeseadas(valorTecleado);
+    const tandas = calcularTandasDesdeUnidades(valorTecleado, recetaSeleccionada);
+    setValue("tandas", tandas, { shouldValidate: true });
+  };
+
+  const cambiarModo = (_, val) => {
+    if (!val) return;
+    setModoCantidad(val);
+    if (val === "unidades") {
+      setUnidadesDeseadas("");
+      setValue("tandas", 0, { shouldValidate: false });
+    } else {
+      setValue("tandas", 1, { shouldValidate: false });
+    }
+  };
+
   const abrirNuevo = () => {
     setEditing(null);
     reset(defaultValues);
+    setModoCantidad("tandas");
+    setUnidadesDeseadas("");
     setDialogOpen(true);
   };
 
   const abrirEditar = (row) => {
     setEditing(row);
     reset({ receta_id: row.receta_id, tandas: row.tandas, fecha: row.fecha });
+    setModoCantidad("tandas");
+    setUnidadesDeseadas("");
     setDialogOpen(true);
   };
 
@@ -75,7 +113,7 @@ export default function ProduccionesPage() {
         await editarProduccion(editing.id, data);
         notify.success("Producción actualizada");
       } else {
-        await crearProduccion(data);
+        await crearProduccion({ ...data, modo: modoCantidad, unidades: modoCantidad === "unidades" ? Number(unidadesDeseadas) : undefined });
         notify.success("Producción registrada y stock descontado");
       }
       setDialogOpen(false);
@@ -93,7 +131,7 @@ export default function ProduccionesPage() {
     { field: "fecha", headerName: "Fecha", renderCell: (r) => formatoFecha(r.fecha) },
     { field: "nombre_producto", headerName: "Producto", minWidth: 160 },
     { field: "version", headerName: "Versión", align: "center" },
-    { field: "tandas", headerName: "Tandas", align: "right" },
+    { field: "tandas", headerName: "Tandas", align: "right", renderCell: (r) => formatoNumero(r.tandas, 3) },
     { field: "unidades_producidas", headerName: "Unidades", align: "right", renderCell: (r) => formatoNumero(r.unidades_producidas) },
     { field: "costo_total", headerName: "Costo total", align: "right", renderCell: (r) => formatoNumero(r.costo_total) },
     { field: "costo_unidad", headerName: "Costo/unidad", align: "right", renderCell: (r) => formatoNumero(r.costo_unidad, 4) },
@@ -112,6 +150,9 @@ export default function ProduccionesPage() {
         ) : null,
     },
   ];
+
+  const unidadesEquivalentes =
+    recetaSeleccionada && tandasValue ? formatoNumero(recetaSeleccionada.rendimiento * Number(tandasValue)) : null;
 
   return (
     <Box>
@@ -148,9 +189,45 @@ export default function ProduccionesPage() {
                 )}
               />
             </Grid>
-            <Grid item xs={6}>
-              <TextField label="Tandas" type="number" fullWidth inputProps={{ step: "any" }} {...register("tandas")} error={!!errors.tandas} helperText={errors.tandas?.message} />
+
+            <Grid item xs={12}>
+              <ToggleButtonGroup value={modoCantidad} exclusive size="small" onChange={cambiarModo}>
+                <ToggleButton value="tandas">Por tandas</ToggleButton>
+                <ToggleButton value="unidades">Por unidades a producir</ToggleButton>
+              </ToggleButtonGroup>
             </Grid>
+
+            {modoCantidad === "tandas" ? (
+              <Grid item xs={6}>
+                <TextField
+                  label="Tandas"
+                  type="number"
+                  fullWidth
+                  inputProps={{ step: "any" }}
+                  {...register("tandas")}
+                  error={!!errors.tandas}
+                  helperText={errors.tandas?.message || (unidadesEquivalentes ? `Equivale a ${unidadesEquivalentes} unidades` : " ")}
+                />
+              </Grid>
+            ) : (
+              <Grid item xs={6}>
+                <TextField
+                  label="Unidades a producir"
+                  type="number"
+                  fullWidth
+                  disabled={!recetaSeleccionada}
+                  inputProps={{ step: "any" }}
+                  value={unidadesDeseadas}
+                  onChange={handleUnidadesChange}
+                  error={!!errors.tandas}
+                  helperText={
+                    errors.tandas?.message ||
+                    (!recetaSeleccionada ? "Selecciona primero una receta" : `Equivale a ${formatoNumero(Number(tandasValue) || 0, 3)} tandas`)
+                  }
+                />
+              </Grid>
+            )}
+
             <Grid item xs={6}>
               <TextField
                 label="Fecha"
