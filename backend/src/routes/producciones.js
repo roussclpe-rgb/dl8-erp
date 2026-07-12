@@ -3,7 +3,7 @@ const { db, obtenerOCrearPeriodo } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { exigirPeriodoAbierto } = require("../services/periodos");
 const { revertir } = require("../services/fifo");
-const { calcularProduccion } = require("../services/producciones");
+const { calcularProduccion, normalizarCantidadProduccion } = require("../services/producciones");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -19,35 +19,12 @@ router.get("/", (req, res) => {
 });
 
 router.post("/", requireRole("admin", "operador"), (req, res) => {
-  const {
-  receta_id,
-  tandas,
-  unidades,
-  modo,
-  fecha
-} = req.body;
+  const { receta_id, tandas, unidades, modo = "tandas", fecha } = req.body;
   const receta = db.prepare("SELECT * FROM recetas WHERE id = ?").get(receta_id);
   if (!receta) return res.status(400).json({ error: "Receta no existe" });
-  
   let tandasFinales;
-
-if (modo === "unidades") {
-
-  if (!(Number(unidades) > 0)) {
-    return res.status(400).json({ error: "Cantidad de unidades inválida" });
-  }
-
-  tandasFinales = Number(unidades) / Number(receta.unidades_por_tanda);
-
-} else {
-
-  if (!(Number(tandas) > 0)) {
-    return res.status(400).json({ error: "Número de tandas inválido" });
-  }
-
-  tandasFinales = Number(tandas);
-
-}
+  try { tandasFinales = normalizarCantidadProduccion({ modo, tandas, unidades, rendimiento: receta.rendimiento }).tandas; }
+  catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
 
   const items = db.prepare("SELECT * FROM receta_items WHERE receta_id = ?").all(receta_id);
 
@@ -62,21 +39,14 @@ if (modo === "unidades") {
   // de auditoría) vive en una sola transacción: si algo falla a mitad de
   // camino, better-sqlite3 revierte todo automáticamente.
   const crearProduccion = db.transaction(() => {
-    const resultado = calcularProduccion({
-    receta,
-    items,
-    tandas: tandasFinales,
-    fecha,
-    periodoId: periodo.id,
-    usuarioId: req.usuario.id
-});
+    const resultado = calcularProduccion({ receta, items, tandas: tandasFinales, fecha, periodoId: periodo.id, usuarioId: req.usuario.id });
 
     const consumosJson = JSON.stringify(resultado.consumosTotales);
     const info = db.prepare(`
       INSERT INTO producciones
         (receta_id, periodo_id, tandas, unidades_producidas, costo_materia_prima, costo_mano_obra, costo_indirectos, costo_total, costo_unidad, fecha, usuario_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(receta_id, periodo.id, tandas, resultado.unidadesProducidas, resultado.costoMateriaPrima,
+    `).run(receta_id, periodo.id, tandasFinales, resultado.unidadesProducidas, resultado.costoMateriaPrima,
            resultado.costoManoObra, resultado.costoIndirectos, resultado.costoTotal, resultado.costoUnidad, fecha, req.usuario.id);
 
     // Guardamos el detalle de consumo en log_auditoria para poder revertirlo si se edita/anula después

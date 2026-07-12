@@ -113,7 +113,7 @@ export default function ProduccionesPage() {
         await editarProduccion(editing.id, data);
         notify.success("Producción actualizada");
       } else {
-        await crearProduccion(data);
+        await crearProduccion({ ...data, modo: modoCantidad, unidades: modoCantidad === "unidades" ? Number(unidadesDeseadas) : undefined });
         notify.success("Producción registrada y stock descontado");
       }
       setDialogOpen(false);
