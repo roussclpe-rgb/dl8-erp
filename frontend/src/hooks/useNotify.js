@@ -1,5 +1,5 @@
 import { useSnackbar } from "notistack";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 export function useNotify() {
   const { enqueueSnackbar } = useSnackbar();
@@ -9,5 +9,8 @@ export function useNotify() {
   const info = useCallback((msg) => enqueueSnackbar(msg, { variant: "info" }), [enqueueSnackbar]);
   const warning = useCallback((msg) => enqueueSnackbar(msg, { variant: "warning" }), [enqueueSnackbar]);
 
-  return { success, error, info, warning };
+  return useMemo(
+    () => ({ success, error, info, warning }),
+    [success, error, info, warning]
+  );
 }
