@@ -139,8 +139,6 @@ for (const it of items) {
 router.post("/:id/anular", requireRole("admin"), (req, res) => {
   const venta = db.prepare("SELECT * FROM ventas WHERE id = ?").get(req.params.id);
   if (!venta) return res.status(404).json({ error: "No existe" });
-  if (venta.anulado) return res.status(409).json({ error: "Esta venta ya estaba anulada" });
-
   if (db.prepare("SELECT 1 FROM fin_documentos_cxc WHERE venta_id=?").get(venta.id)) {
     try {
       return res.json(anularVentaSinCobros({ ventaId: venta.id, usuarioId: req.usuario.id }));
@@ -148,6 +146,8 @@ router.post("/:id/anular", requireRole("admin"), (req, res) => {
       return res.status(e.status || 400).json({ error: e.status ? e.message : "No se pudo anular la venta" });
     }
   }
+
+  if (venta.anulado) return res.status(409).json({ error: "Esta venta ya estaba anulada" });
 
   try {
     exigirPeriodoAbierto(venta.fecha);

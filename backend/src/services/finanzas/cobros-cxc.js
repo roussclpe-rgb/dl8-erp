@@ -153,11 +153,17 @@ const registrarCobrosVenta = db.transaction(({ ventaId, pagos, turnoCajaId, usua
   return respuesta;
 });
 
-const anularVentaSinCobros = db.transaction(({ ventaId, usuarioId }) => {
+function resultadoAnulacion(venta) {
+  const emision = db.prepare("SELECT id FROM fin_eventos_financieros WHERE reversion_de_id=?").get(venta.evento_emision_id);
+  const cobros = db.prepare(`SELECT c.id,r.id reversion_id FROM fin_cobros c LEFT JOIN fin_eventos_financieros r ON r.reversion_de_id=c.evento_financiero_id WHERE c.documento_cxc_id=? ORDER BY c.id DESC`).all(venta.documento_cxc_id);
+  return { ok: true, reversion_evento_id: emision?.id || null, reversiones_cobro: cobros.map((item) => item.reversion_id).filter(Boolean) };
+}
+
+const anularVentaSinCobros = db.transaction(({ ventaId, usuarioId, fallarDespuesDeRevertir = false }) => {
   const venta = db.prepare("SELECT v.*,d.id documento_cxc_id,d.entidad_id,d.evento_emision_id,d.estado estado_cxc FROM ventas v JOIN fin_documentos_cxc d ON d.venta_id=v.id WHERE v.id=?").get(ventaId);
   if (!venta) return null;
-  if (venta.anulado || venta.estado_cxc === "anulada") throw fallo("Esta venta ya estaba anulada", 409);
   catalogos.exigirAcceso(venta.entidad_id, usuarioId, ["finanzas_admin", "finanzas_personal_propietario"]);
+  if (venta.anulado || venta.estado_cxc === "anulada") return resultadoAnulacion(venta);
   const cobros = db.prepare(`SELECT c.id,c.evento_financiero_id,c.importe_minor FROM fin_cobros c
     WHERE c.documento_cxc_id=? ORDER BY c.id DESC`).all(venta.documento_cxc_id);
   const reversionesCobro = cobros.map((cobro) => motor.revertir({
@@ -165,6 +171,9 @@ const anularVentaSinCobros = db.transaction(({ ventaId, usuarioId }) => {
     clave: `anular-cobro-venta-${venta.id}-${cobro.id}`, permitirVinculado: true,
   }));
   const reversion = motor.revertir({ entidadId: venta.entidad_id, eventoId: venta.evento_emision_id, usuarioId, clave: `anular-emision-venta-${venta.id}`, permitirVinculado: true });
+  if (fallarDespuesDeRevertir) throw fallo("Fallo inducido después de revertir eventos");
+  db.prepare("UPDATE fin_aplicaciones_cxc SET estado='revertida' WHERE documento_cxc_id=? AND estado='confirmada'").run(venta.documento_cxc_id);
+  db.prepare("UPDATE fin_cobros SET estado='revertido' WHERE documento_cxc_id=? AND estado='confirmado'").run(venta.documento_cxc_id);
   db.prepare("UPDATE ventas SET anulado=1 WHERE id=?").run(venta.id);
   db.prepare("UPDATE fin_documentos_cxc SET estado='anulada' WHERE id=?").run(venta.documento_cxc_id);
   db.prepare("INSERT INTO log_auditoria(usuario_id,entidad,entidad_id,accion,datos_antes,datos_despues) VALUES(?,'venta',?,'anular',?,?)")

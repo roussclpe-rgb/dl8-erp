@@ -10,6 +10,7 @@ const catalogos = require("../src/services/finanzas/catalogos");
 const caja = require("../src/services/caja");
 const politicas = require("../src/services/finanzas/politicas");
 const motor = require("../src/services/finanzas/motor");
+const { anularVentaSinCobros } = require("../src/services/finanzas/cobros-cxc");
 
 const admin = Number(db.prepare("INSERT INTO usuarios(nombre,email,password_hash,rol_id)VALUES('Cobros','cobros@test','x',1)").run().lastInsertRowid);
 const auth = generarToken({ id: admin, nombre: "Cobros", rol_nombre: "admin" });
@@ -147,7 +148,29 @@ test("anulación revierte emisión, cobros y reservas de una venta cobrada", asy
   const resultado = await cobradaAnulada.json();
   assert.equal(resultado.reversiones_cobro.length, 1);
   assert.equal(db.prepare("SELECT estado FROM fin_documentos_cxc WHERE venta_id=?").get(cobrada.data.id).estado, "anulada");
+  assert.equal(db.prepare("SELECT estado FROM fin_cobros WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?)").get(cobrada.data.id).estado, "revertido");
+  assert.equal(db.prepare("SELECT estado FROM fin_aplicaciones_cxc WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?)").get(cobrada.data.id).estado, "revertida");
   assert.equal(db.prepare("SELECT COUNT(*) n FROM fin_eventos_financieros WHERE reversion_de_id IN(SELECT evento_financiero_id FROM fin_cobros WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?))").get(cobrada.data.id).n, 1);
+  const reintento = await pedir(`/api/ventas/${cobrada.data.id}/anular`, {}, "anular-cobrada-repetida");
+  assert.equal(reintento.status, 200);
+  assert.deepEqual(await reintento.json(), resultado);
+});
+
+test("anulación parcial neutraliza saldos y un fallo intermedio revierte toda la transacción", async () => {
+  const saldoAntes = motor.saldos(entidad.id).tesoreria.find((item) => item.id === billetera.id).saldo_minor;
+  const parcial = await nuevaVenta([{ monto: 40, metodoPago: "Yape", cuenta_financiera_id: billetera.id }]);
+  assert.equal((await pedir(`/api/ventas/${parcial.data.id}/anular`, {}, "anular-parcial")).status, 200);
+  assert.equal(motor.saldos(entidad.id).tesoreria.find((item) => item.id === billetera.id).saldo_minor, saldoAntes);
+  const lineasNetas = db.prepare(`SELECT pc.codigo,SUM(l.debe_minor-l.haber_minor) neto FROM fin_lineas_asiento l JOIN fin_asientos_contables a ON a.id=l.asiento_id JOIN fin_plan_cuentas pc ON pc.id=l.cuenta_contable_id WHERE a.evento_id IN (SELECT id FROM fin_eventos_financieros WHERE id IN ((SELECT evento_emision_id FROM fin_documentos_cxc WHERE venta_id=?),(SELECT evento_financiero_id FROM fin_cobros WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?))) OR reversion_de_id IN ((SELECT evento_emision_id FROM fin_documentos_cxc WHERE venta_id=?),(SELECT evento_financiero_id FROM fin_cobros WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?)))) GROUP BY pc.codigo`).all(parcial.data.id, parcial.data.id, parcial.data.id, parcial.data.id);
+  assert.equal(lineasNetas.every((item) => item.neto === 0), true);
+
+  const conFallo = await nuevaVenta([{ monto: 25, metodoPago: "Yape", cuenta_financiera_id: billetera.id }]);
+  const reversionesAntes = db.prepare("SELECT COUNT(*) n FROM fin_eventos_financieros WHERE tipo='reversion'").get().n;
+  assert.throws(() => anularVentaSinCobros({ ventaId: conFallo.data.id, usuarioId: admin, fallarDespuesDeRevertir: true }), /Fallo inducido/);
+  assert.equal(db.prepare("SELECT anulado FROM ventas WHERE id=?").get(conFallo.data.id).anulado, 0);
+  assert.equal(db.prepare("SELECT estado FROM fin_cobros WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?)").get(conFallo.data.id).estado, "confirmado");
+  assert.equal(db.prepare("SELECT estado FROM fin_aplicaciones_cxc WHERE documento_cxc_id=(SELECT id FROM fin_documentos_cxc WHERE venta_id=?)").get(conFallo.data.id).estado, "confirmada");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM fin_eventos_financieros WHERE tipo='reversion'").get().n, reversionesAntes);
 });
 
 test("período financiero cerrado rechaza cobro", async () => {
@@ -181,11 +204,13 @@ test("flujo MPF se filtra por venta y conserva política, reglas y reversión au
   assert.equal(detalle.politica.version, 1);
   assert.equal(detalle.politica.reglas[0].valor_minor, 2500);
   assert.equal(detalle.distribuciones[0].importe_minor, 2500);
+  assert.equal(motor.saldos(entidad.id).bolsillos.find((item) => item.id === bolsillo.id).saldo_minor, 2500);
   const anulacion = await pedir(`/api/ventas/${venta.data.id}/anular`, {}, "anular-flujo-mpf");
   assert.equal(anulacion.status, 200);
   assert.equal(politicas.listarFlujosDinero(entidad.id, { cobroId: cobro.id })[0].estado, "revertido");
   assert.ok(politicas.flujoDineroEvento(entidad.id, cobro.evento_financiero_id).reversion);
   assert.equal(politicas.auditoriaMpf(entidad.id, { cobroId: cobro.id, tipoEvento: "reversion" }).resultados[0].estado, "revertido");
+  assert.equal(motor.saldos(entidad.id).bolsillos.find((item) => item.id === bolsillo.id).saldo_minor, 0);
 });
 
 test("restricciones SQL protegen vínculos, inmutabilidad y reversión de dominio", async () => {
