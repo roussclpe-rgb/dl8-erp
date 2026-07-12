@@ -150,6 +150,9 @@ export const crearBolsillo = (entidadId, data) => client.post(`/finanzas/entidad
 export const saldosTesoreria = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/saldos/tesoreria`).then((r) => r.data);
 export const saldosBolsillos = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/saldos/bolsillos`).then((r) => r.data);
 export const saldosContables = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/saldos/contables`).then((r) => r.data);
+export const saldoCajaFinanciera = (e) => client.get(`/finanzas/entidades/${e}/saldos/caja`).then((r) => r.data);
+export const saldoCuentaFinanciera = (e, id) => client.get(`/finanzas/entidades/${e}/saldos/cuentas-financieras/${id}`).then((r) => r.data);
+export const utilidadPeriodoActual = (e) => client.get(`/finanzas/entidades/${e}/utilidad/periodo-actual`).then((r) => r.data);
 export const listarEventosFinancieros = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/eventos`).then((r) => r.data);
 export const registrarSaldoInicial = (entidadId, data, key) => client.post(`/finanzas/entidades/${entidadId}/saldos-iniciales`, data, { headers: { "Idempotency-Key": key } }).then((r) => r.data);
 export const registrarTransferenciaFinanciera = (entidadId, data, key) => client.post(`/finanzas/entidades/${entidadId}/transferencias-internas`, data, { headers: { "Idempotency-Key": key } }).then((r) => r.data);

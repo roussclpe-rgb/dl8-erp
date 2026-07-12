@@ -69,6 +69,9 @@ router.post('/entidades/:entidadId/politicas-financieras/:politicaId/activar',ac
 router.post('/entidades/:entidadId/politicas-financieras/:politicaId/simular',acceso(...catalogos.ROLES_FINANCIEROS),(req,res)=>responder(res,()=>politicas.simular({entidadId:+req.params.entidadId,politicaId:+req.params.politicaId,importeIngresoMinor:req.body.importe_ingreso_minor,contexto:req.body.contexto||{}})));
 router.get('/entidades/:entidadId/saldos/tesoreria',acceso(...catalogos.ROLES_FINANCIEROS),(req,res)=>res.json(motor.saldos(+req.params.entidadId).tesoreria));
 router.get('/entidades/:entidadId/saldos/bolsillos',acceso(...catalogos.ROLES_FINANCIEROS),(req,res)=>res.json(motor.saldos(+req.params.entidadId).bolsillos));
+router.get('/entidades/:entidadId/saldos/caja',acceso(...catalogos.ROLES_FINANCIEROS),(req,res)=>res.json(motor.saldoCaja(+req.params.entidadId)));
+router.get('/entidades/:entidadId/saldos/cuentas-financieras/:cuentaFinancieraId',acceso(...catalogos.ROLES_FINANCIEROS),(req,res)=>{try{res.json(motor.saldoCuentaFinanciera(+req.params.entidadId,+req.params.cuentaFinancieraId))}catch(e){res.status(e.status||400).json({error:e.message})}});
+router.get('/entidades/:entidadId/utilidad/periodo-actual',acceso(...catalogos.ROLES_FINANCIEROS),(req,res)=>res.json(motor.utilidadPeriodoActual(+req.params.entidadId)));
 router.get('/entidades/:entidadId/donde-esta-mi-dinero',acceso(...catalogos.ROLES_FINANCIEROS),(req,res)=>res.json(motor.dondeEstaDinero(+req.params.entidadId)));
 router.get('/entidades/:entidadId/alertas-financieras',acceso(...catalogos.ROLES_FINANCIEROS),(req,res)=>res.json(alertas.evaluar(+req.params.entidadId)));
 router.get('/entidades/:entidadId/predicciones-financieras',acceso(...catalogos.ROLES_FINANCIEROS),(req,res)=>{try{res.json(predicciones.predicciones(+req.params.entidadId,{horizonte:req.query.horizonte}))}catch(e){res.status(e.status||400).json({error:e.message||'No se pudieron calcular las predicciones.'})}});
