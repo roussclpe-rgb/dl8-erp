@@ -33,6 +33,7 @@ import DeleteSweepIcon from "@mui/icons-material/DeleteSweepOutlined";
 import AssessmentIcon from "@mui/icons-material/AssessmentOutlined";
 import EventNoteIcon from "@mui/icons-material/EventNoteOutlined";
 import SettingsIcon from "@mui/icons-material/SettingsOutlined";
+import AccountBalanceIcon from "@mui/icons-material/AccountBalanceOutlined";
 import GroupIcon from "@mui/icons-material/GroupOutlined";
 import LightModeIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeIcon from "@mui/icons-material/DarkModeOutlined";
@@ -76,6 +77,16 @@ const MENU = [
     section: "Administración",
     items: [
       { label: "Reportes", icon: <AssessmentIcon />, to: "/reportes" },
+      { label: "Finanzas", icon: <AccountBalanceIcon />, to: "/finanzas" },
+      { label: "Alertas financieras", icon: <NotificationsIcon />, to: "/alertas-financieras" },
+      { label: "Simulador financiero", icon: <AssessmentIcon />, to: "/escenarios-financieros" },
+      { label: "Predicciones financieras", icon: <AssessmentIcon />, to: "/predicciones-financieras" },
+      { label: "Flujo por cobro", icon: <AccountBalanceIcon />, to: "/flujo-dinero" },
+      { label: "Auditoría financiera", icon: <AssessmentIcon />, to: "/auditoria-financiera" },
+      { label: "Metas financieras", icon: <AccountBalanceIcon />, to: "/metas-financieras" },
+      { label: "Políticas financieras", icon: <AccountBalanceIcon />, to: "/politicas-financieras" },
+      { label: "Aportes y préstamos", icon: <AccountBalanceIcon />, to: "/movimientos-especiales" },
+      { label: "Dónde está mi dinero", icon: <AccountBalanceIcon />, to: "/donde-esta-mi-dinero" },
       { label: "Periodos contables", icon: <EventNoteIcon />, to: "/periodos" },
       { label: "Config. de costos", icon: <SettingsIcon />, to: "/config-costos" },
       { label: "Usuarios", icon: <GroupIcon />, to: "/usuarios", roles: ["admin"] },

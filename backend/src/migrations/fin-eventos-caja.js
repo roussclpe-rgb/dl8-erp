@@ -1,8 +1,8 @@
-const TIPOS = "'saldo_inicial','transferencia_interna','reasignacion_bolsillo','ingreso_caja','egreso_caja','ajuste_conciliacion','cobro_venta','emision_venta','reversion'";
+const TIPOS = "'saldo_inicial','transferencia_interna','reasignacion_bolsillo','ingreso_caja','egreso_caja','ingreso_manual','egreso_manual','ajuste_conciliacion','cobro_venta','emision_venta','aporte_socio','prestamo_recibido','reversion'";
 
 function requiereMigracion(db) {
   const tabla = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='fin_eventos_financieros'").get();
-  return !!tabla && !['ingreso_caja','egreso_caja','ajuste_conciliacion','cobro_venta','emision_venta'].every((tipo) => tabla.sql.includes(`'${tipo}'`));
+  return !!tabla && !['ingreso_caja','egreso_caja','ingreso_manual','egreso_manual','ajuste_conciliacion','cobro_venta','emision_venta','aporte_socio','prestamo_recibido'].every((tipo) => tabla.sql.includes(`'${tipo}'`));
 }
 
 function migrarTiposEventosCaja(db, { fallarDespuesDeCopiar = false } = {}) {

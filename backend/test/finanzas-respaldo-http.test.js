@@ -34,3 +34,15 @@ test('respaldo cuenta-bolsillo autorizado solo devuelve saldos de su entidad',as
   const response=await pedir(`/api/finanzas/entidades/${propia.entidad.id}/saldos/respaldo-cuenta-bolsillo`,token(admin,'Admin'));
   assert.equal(response.status,200);const saldos=await response.json();assert.deepEqual(saldos,[{cuenta_financiera_id:propia.cuenta.id,bolsillo_id:propia.bolsillo.id,saldo_minor:1000}]);
 });
+
+test('predicciones exige autenticación y mantiene el aislamiento por entidad',async()=>{
+  const ruta=`/api/finanzas/entidades/${propia.entidad.id}/predicciones-financieras?horizonte=30`;
+  assert.equal((await pedir(ruta)).status,401);
+  assert.equal((await pedir(ruta,token(sinAcceso,'Sin acceso'))).status,403);
+  const respuesta=await pedir(ruta,token(admin,'Admin'));
+  assert.equal(respuesta.status,200);
+  const datos=await respuesta.json();
+  assert.equal(datos.estado,'ok');
+  assert.equal(datos.horizonte_dias,30);
+  assert.ok(datos.datos_utilizados.dias_con_movimiento>=1);
+});

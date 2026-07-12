@@ -19,11 +19,13 @@ function stockDisponible(recetaGrupoId) {
     WHERE vi.receta_grupo_id = ? AND v.anulado = 0
   `).get(recetaGrupoId).total;
 
-  // TODO: si `mermas` registra merma de producto terminado (y no solo de
-  // materia prima), restar aquí esa cantidad también:
-  // const merma = db.prepare(`SELECT COALESCE(SUM(cantidad),0) AS t FROM mermas WHERE receta_grupo_id = ? AND anulado = 0`).get(recetaGrupoId).t;
+    const mermado = db.prepare(`
+    SELECT COALESCE(SUM(cantidad), 0) AS total
+    FROM mermas_producto
+    WHERE grupo_receta_id = ?
+  `).get(recetaGrupoId).total;
 
-  return producido - vendido;
+  return producido - vendido - mermado;
 }
 
 function productoVendible(recetaGrupoId) {
@@ -35,19 +37,26 @@ function productoVendible(recetaGrupoId) {
   `).get(recetaGrupoId);
 }
 
-// Calcula precios, valida stock y arma el detalle de una venta.
+// Calcula precios, aplica descuentos manuales, valida stock y arma el detalle de una venta.
 // Lanza un error con `.status` (400/404/409) si algo no es válido, para que
 // la ruta lo capture igual que hace producciones.js con calcularProduccion.
-function calcularVenta({ items, cliente }) {
-  let total = 0;
+function calcularVenta({ items, cliente, descuentoTipo, descuentoValor }) {
+  let subtotal = 0;
 
   const itemsCalculados = items.map((it) => {
-    const producto = productoVendible(it.receta_grupo_id);
-    if (!producto) {
-      const e = new Error(`El producto ${it.receta_grupo_id} no existe o no está activo`);
-      e.status = 400;
-      throw e;
-    }
+  if (!(Number(it.cantidad) > 0)) {
+    const e = new Error("La cantidad debe ser mayor a 0");
+    e.status = 400;
+    throw e;
+  }
+
+  const producto = productoVendible(it.receta_grupo_id);
+
+  if (!producto) {
+    const e = new Error(`El producto ${it.receta_grupo_id} no existe o no está activo`);
+    e.status = 400;
+    throw e;
+  }
 
     const disponible = stockDisponible(it.receta_grupo_id);
     if (it.cantidad > disponible) {
@@ -59,19 +68,26 @@ function calcularVenta({ items, cliente }) {
     }
 
     const precioUnitario = cliente.tipo === "mayorista" ? producto.precio_mayorista : producto.precio_normal;
-    const subtotal = precioUnitario * it.cantidad;
-    total += subtotal;
+    const subtotalItem = precioUnitario * it.cantidad;
+    subtotal += subtotalItem;
 
     return {
       receta_grupo_id: it.receta_grupo_id,
       nombre_producto: producto.nombre_producto,
       cantidad: it.cantidad,
       precioUnitario,
-      subtotal,
+      subtotal: subtotalItem,
     };
   });
 
-  return { itemsCalculados, total };
+  let descuentoMonto = 0;
+  const valor = Number(descuentoValor) || 0;
+  if (valor > 0) {
+    descuentoMonto = descuentoTipo === "porcentaje" ? subtotal * (Math.min(valor, 100) / 100) : Math.min(valor, subtotal);
+  }
+  const total = Math.max(subtotal - descuentoMonto, 0);
+
+  return { itemsCalculados, subtotal, descuentoMonto, total };
 }
 
 module.exports = { stockDisponible, productoVendible, calcularVenta };

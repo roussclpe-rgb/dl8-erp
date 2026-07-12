@@ -51,6 +51,9 @@ router.post("/", requireRole("admin", "operador"), (req, res) => {
   const ing = db.prepare("SELECT * FROM ingredientes WHERE id = ?").get(ingrediente_id);
   if (!ing) return res.status(400).json({ error: "Ingrediente no existe" });
   if (!unidad_compra) return res.status(400).json({ error: "Falta unidad_compra" });
+  if (!fecha_compra) {
+    return res.status(400).json({ error: "fecha_compra es obligatoria" });
+  }
 
   try {
     validarNumerosPositivos(req.body);

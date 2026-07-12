@@ -57,4 +57,25 @@ router.get("/sugerencias-compra", (req, res) => {
   res.json(sugerenciasCompra());
 });
 
+// Arqueos cerrados de caja y sus diferencias para el período solicitado.
+router.get("/caja", (req, res) => {
+  const { desde, hasta } = req.query;
+  const turnos = db.prepare(`
+    SELECT t.*, c.nombre AS caja_nombre, u.nombre AS usuario_cierre_nombre
+    FROM turnos_caja t
+    JOIN cajas c ON c.id = t.caja_id
+    LEFT JOIN usuarios u ON u.id = t.usuario_cierre_id
+    WHERE t.estado = 'cerrado' AND date(t.fecha_cierre) BETWEEN ? AND ?
+    ORDER BY t.fecha_cierre DESC, t.id DESC
+  `).all(desde || "0000-01-01", hasta || "9999-12-31");
+  const resumen = turnos.reduce((acum, turno) => {
+    const diferencia = Number(turno.diferencia || 0);
+    acum.totalDiferencias += diferencia;
+    if (diferencia < 0) acum.totalFaltantes += Math.abs(diferencia);
+    if (diferencia > 0) acum.totalSobrantes += diferencia;
+    return acum;
+  }, { totalDiferencias: 0, totalFaltantes: 0, totalSobrantes: 0 });
+  res.json({ turnos, ...resumen });
+});
+
 module.exports = router;

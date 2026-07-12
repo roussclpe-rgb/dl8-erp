@@ -96,7 +96,7 @@ CREATE TRIGGER IF NOT EXISTS trg_fin_participacion_sin_solape_insert BEFORE INSE
   SELECT CASE WHEN (COALESCE((SELECT SUM(COALESCE(porcentaje_minor,0)) FROM fin_participaciones WHERE entidad_id = NEW.entidad_id AND estado = 'activa'),0) + COALESCE(NEW.porcentaje_minor,0)) > 10000 THEN RAISE(ABORT, 'Las participaciones activas no pueden superar 10000') END;
 END;
 -- Motor transaccional MVP 2
-CREATE TABLE IF NOT EXISTS fin_eventos_financieros (id INTEGER PRIMARY KEY AUTOINCREMENT, entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), tipo TEXT NOT NULL CHECK(tipo IN ('saldo_inicial','transferencia_interna','reasignacion_bolsillo','ingreso_caja','egreso_caja','ajuste_conciliacion','cobro_venta','emision_venta','reversion')), estado TEXT NOT NULL DEFAULT 'confirmado' CHECK(estado='confirmado'), fecha TEXT NOT NULL, moneda TEXT NOT NULL DEFAULT 'PEN' CHECK(moneda='PEN'), descripcion TEXT NOT NULL, reversion_de_id INTEGER UNIQUE REFERENCES fin_eventos_financieros(id), creado_por INTEGER NOT NULL REFERENCES usuarios(id), creado_en TEXT NOT NULL DEFAULT(datetime('now')));
+CREATE TABLE IF NOT EXISTS fin_eventos_financieros (id INTEGER PRIMARY KEY AUTOINCREMENT, entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), tipo TEXT NOT NULL CHECK(tipo IN ('saldo_inicial','transferencia_interna','reasignacion_bolsillo','ingreso_caja','egreso_caja','ingreso_manual','egreso_manual','ajuste_conciliacion','cobro_venta','emision_venta','aporte_socio','prestamo_recibido','reversion')), estado TEXT NOT NULL DEFAULT 'confirmado' CHECK(estado='confirmado'), fecha TEXT NOT NULL, moneda TEXT NOT NULL DEFAULT 'PEN' CHECK(moneda='PEN'), descripcion TEXT NOT NULL, reversion_de_id INTEGER UNIQUE REFERENCES fin_eventos_financieros(id), creado_por INTEGER NOT NULL REFERENCES usuarios(id), creado_en TEXT NOT NULL DEFAULT(datetime('now')));
 CREATE TABLE IF NOT EXISTS fin_eventos_por_entidad (id INTEGER PRIMARY KEY AUTOINCREMENT, evento_id INTEGER NOT NULL REFERENCES fin_eventos_financieros(id), entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), UNIQUE(evento_id, entidad_id));
 CREATE TABLE IF NOT EXISTS fin_asientos_contables (id INTEGER PRIMARY KEY AUTOINCREMENT, evento_id INTEGER NOT NULL UNIQUE REFERENCES fin_eventos_financieros(id), entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), periodo_id INTEGER NOT NULL REFERENCES fin_periodos(id), fecha TEXT NOT NULL, estado TEXT NOT NULL DEFAULT 'confirmado' CHECK(estado='confirmado'), glosa TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fin_lineas_asiento (id INTEGER PRIMARY KEY AUTOINCREMENT, asiento_id INTEGER NOT NULL REFERENCES fin_asientos_contables(id), cuenta_contable_id INTEGER NOT NULL REFERENCES fin_plan_cuentas(id), cuenta_financiera_id INTEGER REFERENCES fin_cuentas_financieras(id), debe_minor INTEGER NOT NULL DEFAULT 0 CHECK(debe_minor>=0), haber_minor INTEGER NOT NULL DEFAULT 0 CHECK(haber_minor>=0), CHECK((debe_minor>0 AND haber_minor=0) OR (haber_minor>0 AND debe_minor=0)));
@@ -178,6 +178,97 @@ CREATE TRIGGER IF NOT EXISTS trg_fin_aplicaciones_no_delete BEFORE DELETE ON fin
 CREATE TRIGGER IF NOT EXISTS trg_pagos_cxc_no_update BEFORE UPDATE ON pagos WHEN OLD.cobro_id IS NOT NULL BEGIN SELECT RAISE(ABORT,'Los pagos vinculados a CxC son inmutables'); END;
 CREATE TRIGGER IF NOT EXISTS trg_pagos_cxc_no_delete BEFORE DELETE ON pagos WHEN OLD.cobro_id IS NOT NULL BEGIN SELECT RAISE(ABORT,'Los pagos vinculados a CxC no se eliminan'); END;
 CREATE INDEX IF NOT EXISTS idx_fin_eventos_entidad_fecha ON fin_eventos_financieros(entidad_id, fecha, id);
+-- Motor de Políticas Financieras (MPF). Esta capa sólo clasifica dinero dentro
+-- de una cuenta financiera; no genera asientos contables ni movimientos de tesorería.
+CREATE TABLE IF NOT EXISTS mpf_politicas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id),
+  nombre TEXT NOT NULL,
+  evento_tipo TEXT NOT NULL CHECK(evento_tipo IN ('cobro_venta','aporte','prestamo')),
+  version INTEGER NOT NULL DEFAULT 1,
+  estado TEXT NOT NULL DEFAULT 'borrador' CHECK(estado IN ('borrador','activa','inactiva')),
+  es_predeterminada INTEGER NOT NULL DEFAULT 0 CHECK(es_predeterminada IN (0,1)),
+  recupera_costo INTEGER NOT NULL DEFAULT 0 CHECK(recupera_costo IN (0,1)),
+  bolsillo_costo_id INTEGER REFERENCES fin_bolsillos(id),
+  creado_por INTEGER NOT NULL REFERENCES usuarios(id), creado_en TEXT NOT NULL DEFAULT(datetime('now')),
+  UNIQUE(entidad_id,nombre,version)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mpf_politica_predeterminada ON mpf_politicas(entidad_id,evento_tipo)
+  WHERE estado='activa' AND es_predeterminada=1;
+CREATE TABLE IF NOT EXISTS mpf_reglas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  politica_id INTEGER NOT NULL REFERENCES mpf_politicas(id),
+  orden INTEGER NOT NULL CHECK(orden > 0),
+  nombre TEXT NOT NULL,
+  base TEXT NOT NULL CHECK(base IN ('ingreso','remanente')),
+  tipo TEXT NOT NULL CHECK(tipo IN ('porcentaje','importe_fijo')),
+  valor_minor INTEGER NOT NULL CHECK(valor_minor >= 0),
+  bolsillo_id INTEGER NOT NULL REFERENCES fin_bolsillos(id),
+  meta_id INTEGER REFERENCES mpf_metas_financieras(id),
+  condicion_json TEXT NOT NULL DEFAULT '{}',
+  accion TEXT NOT NULL DEFAULT 'aplicar' CHECK(accion IN ('aplicar','resto','omitir')),
+  bolsillo_destino_id INTEGER REFERENCES fin_bolsillos(id),
+  meta_destino_id INTEGER REFERENCES mpf_metas_financieras(id),
+  UNIQUE(politica_id,orden)
+);
+CREATE TABLE IF NOT EXISTS mpf_aplicaciones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id),
+  evento_financiero_id INTEGER NOT NULL UNIQUE REFERENCES fin_eventos_financieros(id),
+  politica_id INTEGER NOT NULL REFERENCES mpf_politicas(id),
+  politica_version INTEGER NOT NULL,
+  importe_ingreso_minor INTEGER NOT NULL CHECK(importe_ingreso_minor > 0),
+  costo_recuperado_minor INTEGER NOT NULL DEFAULT 0 CHECK(costo_recuperado_minor >= 0),
+  importe_distribuido_minor INTEGER NOT NULL CHECK(importe_distribuido_minor >= 0),
+  creado_en TEXT NOT NULL DEFAULT(datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS mpf_detalles_aplicacion (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  aplicacion_id INTEGER NOT NULL REFERENCES mpf_aplicaciones(id),
+  regla_id INTEGER NOT NULL REFERENCES mpf_reglas(id),
+  bolsillo_id INTEGER NOT NULL REFERENCES fin_bolsillos(id),
+  importe_minor INTEGER NOT NULL CHECK(importe_minor >= 0),
+  condicion_evaluada_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_mpf_aplicaciones_evento ON mpf_aplicaciones(evento_financiero_id);
+CREATE TABLE IF NOT EXISTS mpf_metas_bolsillo (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id),
+  bolsillo_id INTEGER NOT NULL REFERENCES fin_bolsillos(id),
+  meta_minor INTEGER NOT NULL CHECK(meta_minor >= 0),
+  actualizado_por INTEGER NOT NULL REFERENCES usuarios(id),
+  actualizado_en TEXT NOT NULL DEFAULT(datetime('now')),
+  UNIQUE(entidad_id,bolsillo_id)
+);
+CREATE TABLE IF NOT EXISTS mpf_metas_financieras (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id),
+  nombre TEXT NOT NULL,
+  bolsillo_id INTEGER NOT NULL REFERENCES fin_bolsillos(id),
+  monto_objetivo_minor INTEGER NOT NULL CHECK(monto_objetivo_minor > 0),
+  fecha_objetivo TEXT,
+  estado TEXT NOT NULL DEFAULT 'activa' CHECK(estado IN ('activa','pausada','cumplida','cancelada')),
+  creado_por INTEGER NOT NULL REFERENCES usuarios(id),
+  creado_en TEXT NOT NULL DEFAULT(datetime('now')),
+  actualizado_por INTEGER REFERENCES usuarios(id),
+  actualizado_en TEXT,
+  CHECK(fecha_objetivo IS NULL OR (length(fecha_objetivo)=10 AND substr(fecha_objetivo,5,1)='-' AND substr(fecha_objetivo,8,1)='-'))
+);
+CREATE INDEX IF NOT EXISTS idx_mpf_metas_entidad_estado ON mpf_metas_financieras(entidad_id,estado);
+CREATE TABLE IF NOT EXISTS fin_alertas_config (id INTEGER PRIMARY KEY AUTOINCREMENT, entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), tipo TEXT NOT NULL, severidad TEXT NOT NULL DEFAULT 'advertencia' CHECK(severidad IN ('informativa','advertencia','critica')), umbral_minor INTEGER, activa INTEGER NOT NULL DEFAULT 1, UNIQUE(entidad_id,tipo));
+CREATE TABLE IF NOT EXISTS fin_alertas (id INTEGER PRIMARY KEY AUTOINCREMENT, entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), tipo TEXT NOT NULL, clave_problema TEXT NOT NULL, severidad TEXT NOT NULL CHECK(severidad IN ('informativa','advertencia','critica')), estado TEXT NOT NULL DEFAULT 'activa' CHECK(estado IN ('activa','leida','resuelta','ignorada')), mensaje TEXT NOT NULL, origen_json TEXT NOT NULL DEFAULT '{}', creada_en TEXT NOT NULL DEFAULT(datetime('now')), actualizada_en TEXT NOT NULL DEFAULT(datetime('now')), UNIQUE(entidad_id,tipo,clave_problema));
+CREATE TABLE IF NOT EXISTS fin_alertas_historial (id INTEGER PRIMARY KEY AUTOINCREMENT, alerta_id INTEGER NOT NULL REFERENCES fin_alertas(id), usuario_id INTEGER REFERENCES usuarios(id), estado_anterior TEXT, estado_nuevo TEXT NOT NULL, creado_en TEXT NOT NULL DEFAULT(datetime('now')));
+CREATE TABLE IF NOT EXISTS fin_escenarios_financieros (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id),
+  nombre TEXT NOT NULL,
+  configuracion_json TEXT NOT NULL DEFAULT '{}',
+  creado_por INTEGER NOT NULL REFERENCES usuarios(id),
+  creado_en TEXT NOT NULL DEFAULT(datetime('now')),
+  actualizado_en TEXT NOT NULL DEFAULT(datetime('now')),
+  UNIQUE(entidad_id,nombre)
+);
+CREATE INDEX IF NOT EXISTS idx_fin_escenarios_entidad ON fin_escenarios_financieros(entidad_id,actualizado_en DESC);
 DROP TRIGGER IF EXISTS trg_fin_eventos_no_update;
 CREATE TRIGGER trg_fin_eventos_no_update BEFORE UPDATE ON fin_eventos_financieros BEGIN SELECT RAISE(ABORT,'Los eventos confirmados son inmutables; usa una reversión'); END;
 CREATE TRIGGER IF NOT EXISTS trg_fin_eventos_no_delete BEFORE DELETE ON fin_eventos_financieros WHEN OLD.estado IN ('confirmado','revertido') BEGIN SELECT RAISE(ABORT,'Los eventos confirmados no se eliminan'); END;

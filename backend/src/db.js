@@ -47,9 +47,34 @@ if (!columnaExiste("pagos", "aplicacion_cxc_id")) {
 if (!columnaExiste("fin_aplicaciones_cxc", "cobro_id")) {
   db.exec("ALTER TABLE fin_aplicaciones_cxc ADD COLUMN cobro_id INTEGER REFERENCES fin_cobros(id)");
 }
+if (!columnaExiste("mpf_politicas", "recupera_costo")) {
+  db.exec("ALTER TABLE mpf_politicas ADD COLUMN recupera_costo INTEGER NOT NULL DEFAULT 0 CHECK(recupera_costo IN (0,1))");
+}
+if (!columnaExiste("mpf_politicas", "bolsillo_costo_id")) {
+  db.exec("ALTER TABLE mpf_politicas ADD COLUMN bolsillo_costo_id INTEGER REFERENCES fin_bolsillos(id)");
+}
+if (!columnaExiste("mpf_aplicaciones", "costo_recuperado_minor")) {
+  db.exec("ALTER TABLE mpf_aplicaciones ADD COLUMN costo_recuperado_minor INTEGER NOT NULL DEFAULT 0 CHECK(costo_recuperado_minor >= 0)");
+}
+if (!columnaExiste("mpf_reglas", "meta_id")) {
+  db.exec("ALTER TABLE mpf_reglas ADD COLUMN meta_id INTEGER REFERENCES mpf_metas_financieras(id)");
+}
+if (!columnaExiste("mpf_reglas", "condicion_json")) db.exec("ALTER TABLE mpf_reglas ADD COLUMN condicion_json TEXT NOT NULL DEFAULT '{}'");
+if (!columnaExiste("mpf_reglas", "accion")) db.exec("ALTER TABLE mpf_reglas ADD COLUMN accion TEXT NOT NULL DEFAULT 'aplicar'");
+if (!columnaExiste("mpf_reglas", "bolsillo_destino_id")) db.exec("ALTER TABLE mpf_reglas ADD COLUMN bolsillo_destino_id INTEGER REFERENCES fin_bolsillos(id)");
+if (!columnaExiste("mpf_reglas", "meta_destino_id")) db.exec("ALTER TABLE mpf_reglas ADD COLUMN meta_destino_id INTEGER REFERENCES mpf_metas_financieras(id)");
+if (!columnaExiste("mpf_detalles_aplicacion", "condicion_evaluada_json")) db.exec("ALTER TABLE mpf_detalles_aplicacion ADD COLUMN condicion_evaluada_json TEXT NOT NULL DEFAULT '{}'");
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pagos_cobro_unico ON pagos(cobro_id) WHERE cobro_id IS NOT NULL");
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pagos_aplicacion_unica ON pagos(aplicacion_cxc_id) WHERE aplicacion_cxc_id IS NOT NULL");
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_aplicacion_cobro_unico ON fin_aplicaciones_cxc(cobro_id) WHERE cobro_id IS NOT NULL");
+db.exec(`CREATE TABLE IF NOT EXISTS venta_item_costos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  venta_item_id INTEGER NOT NULL REFERENCES venta_items(id),
+  produccion_id INTEGER NOT NULL REFERENCES producciones(id),
+  cantidad REAL NOT NULL CHECK(cantidad > 0),
+  costo_unidad REAL NOT NULL CHECK(costo_unidad >= 0),
+  UNIQUE(venta_item_id, produccion_id)
+); CREATE INDEX IF NOT EXISTS idx_venta_item_costos_item ON venta_item_costos(venta_item_id);`);
 db.exec(`
   CREATE TABLE IF NOT EXISTS pagos_claves_idempotencia (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,6 +89,17 @@ db.exec(`
 `);
 db.exec(`
   CREATE TABLE IF NOT EXISTS ventas_claves_idempotencia (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    clave TEXT NOT NULL,
+    hash_payload TEXT NOT NULL,
+    respuesta_json TEXT NOT NULL,
+    creado_en TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(usuario_id, clave)
+  )
+`);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS movimientos_manuales_claves_idempotencia (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
     clave TEXT NOT NULL,
