@@ -10,7 +10,9 @@ router.use(requireAuth);
 // Recetas vigentes que ya tienen precio de venta asignado, con su stock.
 router.get("/", (req, res) => {
   const filas = db.prepare(`
-    SELECT pv.*, r.nombre_producto
+    SELECT pv.*, r.nombre_producto,
+      (SELECT ROUND(p.costo_unidad * 100) FROM producciones p JOIN recetas cr ON cr.id=p.receta_id
+       WHERE cr.grupo_id=pv.receta_grupo_id AND p.anulado=0 ORDER BY p.fecha DESC,p.id DESC LIMIT 1) costo_actual_unidad_minor
     FROM productos_venta pv
     JOIN recetas r ON r.grupo_id = pv.receta_grupo_id AND r.vigente = 1
     WHERE pv.activo = 1

@@ -2,7 +2,7 @@ const express = require("express");
 const { db, obtenerOCrearPeriodo } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { exigirPeriodoAbierto } = require("../services/periodos");
-const { consumir, agregarPorConteo } = require("../services/fifo");
+const { consumir, agregarPorConteo, agregarInventarioInicial } = require("../services/fifo");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -13,7 +13,7 @@ router.get("/", (req, res) => {
     FROM movimientos_inventario m
     JOIN ingredientes i ON i.id = m.ingrediente_id
     JOIN usuarios u ON u.id = m.usuario_id
-    WHERE m.tipo IN ('merma', 'uso_externo', 'conteo_sobra')
+    WHERE m.tipo IN ('merma', 'uso_externo', 'conteo_sobra', 'inventario_inicial')
     ORDER BY m.fecha DESC, m.id DESC
   `).all();
   res.json(movs);
@@ -54,6 +54,18 @@ router.post("/", requireRole("admin", "operador"), (req, res) => {
     return res.status(409).json({ error: `No hay suficiente stock de "${ing.nombre}" para registrar este ajuste (faltan ${faltante.toFixed(2)} ${ing.unidad_base}).` });
   }
   res.status(201).json({ ok: true, costoTotal, consumos });
+});
+
+router.post("/inventario-inicial", requireRole("admin", "operador"), (req, res) => {
+  const { ingrediente_id, cantidad, costo_total, motivo, fecha } = req.body;
+  if (!(Number(cantidad) > 0) || !(Number(costo_total) > 0) || !motivo?.trim()) return res.status(400).json({ error: "Cantidad, costo total y motivo son obligatorios" });
+  const ingrediente = db.prepare("SELECT id FROM ingredientes WHERE id=? AND activo=1").get(ingrediente_id);
+  if (!ingrediente) return res.status(404).json({ error: "Ingrediente no encontrado" });
+  try {
+    const periodo = obtenerOCrearPeriodo(fecha); exigirPeriodoAbierto(fecha);
+    const loteId = agregarInventarioInicial({ ingredienteId: ingrediente_id, cantidadBase: Number(cantidad), costoTotal: Number(costo_total), motivo: motivo.trim(), usuarioId: req.usuario.id, fecha, periodoId: periodo.id });
+    res.status(201).json({ ok: true, lote_id: loteId });
+  } catch (error) { res.status(error.status || 400).json({ error: error.message }); }
 });
 
 module.exports = router;

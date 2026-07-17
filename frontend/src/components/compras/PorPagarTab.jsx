@@ -21,7 +21,7 @@ const mensajeError = (error, accion) => {
   return `${prefijos[error?.status] || `No se pudo ${accion}`}: ${error.message}`;
 };
 
-export default function PorPagarTab() {
+export default function PorPagarTab({ onCxPChange }) {
   const { hasRole } = useAuth();
   const notify = useNotify();
   const { turno } = useCajaActiva();
@@ -109,7 +109,7 @@ export default function PorPagarTab() {
     try {
       pagoKeyRef.current ||= crypto.randomUUID();
       await registrarPagoCxP({ entidad_id: pagar.entidad_id, proveedor_id: pagar.proveedor_id, cuenta_financiera_id: cuentaId, bolsillo_id: bolsilloId, metodo_pago: metodo, turno_caja_id: metodo === "Efectivo" ? turno?.id : undefined, fecha: fechaHoyISO(), monto: Number(monto), aplicaciones: [{ documento_cxp_id: pagar.id, monto: Number(monto) }] }, pagoKeyRef.current);
-      notify.success("Pago registrado"); setPagar(null); pagoKeyRef.current = null; cargar();
+      notify.success("Pago registrado"); setPagar(null); pagoKeyRef.current = null; cargar(); onCxPChange?.();
     } catch (error) { notify.error(mensajeError(error, "registrar el pago")); } finally { setSaving(false); }
   };
   const confirmarNota = () => {
@@ -127,7 +127,7 @@ export default function PorPagarTab() {
         notify.success("Nota de crédito registrada");
         setNota(null); notaKeyRef.current = null;
         await refrescarDetalle(documento.id).catch(() => setDetalle(null));
-        cargar();
+        cargar(); onCxPChange?.();
       } else {
         const pago = confirmacion.pago;
         const key = reversionKeysRef.current.get(pago.id) || crypto.randomUUID();
@@ -136,7 +136,7 @@ export default function PorPagarTab() {
         notify.success("Pago revertido");
         reversionKeysRef.current.delete(pago.id);
         await refrescarDetalle(confirmacion.documentoId);
-        cargar();
+        cargar(); onCxPChange?.();
       }
       setConfirmacion(null);
     } catch (error) {

@@ -6,16 +6,31 @@ const { costoEstimadoReceta } = require("../services/costeo");
 const router = express.Router();
 router.use(requireAuth);
 
+function nutricionReceta(items, rendimiento) {
+  const total = items.reduce((acum, item) => {
+    const factor = Number(item.cantidad_base) / 100;
+    acum.calorias += Number(item.calorias_por_100 || 0) * factor;
+    acum.proteinas += Number(item.proteinas_por_100 || 0) * factor;
+    acum.carbohidratos += Number(item.carbohidratos_por_100 || 0) * factor;
+    acum.grasas += Number(item.grasas_por_100 || 0) * factor;
+    acum.fibra += Number(item.fibra_por_100 || 0) * factor;
+    acum.sodio += Number(item.sodio_por_100 || 0) * factor;
+    return acum;
+  }, { calorias: 0, proteinas: 0, carbohidratos: 0, grasas: 0, fibra: 0, sodio: 0 });
+  const porUnidad = Object.fromEntries(Object.entries(total).map(([clave, valor]) => [clave, valor / Number(rendimiento)]));
+  return { total, porUnidad };
+}
+
 router.get("/", (req, res) => {
   const recetas = db.prepare("SELECT * FROM recetas WHERE vigente = 1 AND activo = 1 ORDER BY nombre_producto").all();
   const conCosto = recetas.map((r) => {
     const items = db.prepare(`
-      SELECT ri.*, i.nombre AS ingrediente_nombre, i.unidad_base
+      SELECT ri.*, i.nombre AS ingrediente_nombre, i.unidad_base, i.calorias_por_100, i.proteinas_por_100, i.carbohidratos_por_100, i.grasas_por_100, i.fibra_por_100, i.sodio_por_100
       FROM receta_items ri JOIN ingredientes i ON i.id = ri.ingrediente_id
       WHERE ri.receta_id = ?
     `).all(r.id);
     const costo = costoEstimadoReceta(r.id);
-    return { ...r, items, costoMateriaPrima: costo.costoMateriaPrima, costoManoObra: costo.costoManoObra, incompleto: costo.incompleto };
+    return { ...r, items, nutricion: nutricionReceta(items, r.rendimiento), costoMateriaPrima: costo.costoMateriaPrima, costoManoObra: costo.costoManoObra, incompleto: costo.incompleto };
   });
   res.json(conCosto);
 });

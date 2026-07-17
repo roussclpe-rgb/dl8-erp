@@ -45,6 +45,25 @@ test("venta nueva emite una CxC y asiento 1201/4101 sin tesorería", async () =>
     VALUES(?,?,?,'venta','2026-07-01',?,?,?)`).run(entidad.id, venta.id, clienteId, 1001, documento.evento_emision_id, admin), /UNIQUE/);
 });
 
+test("reconoce costo de venta solo cuando la producción tiene todos sus ingredientes costeados", async () => {
+  const ingredienteId = Number(db.prepare("INSERT INTO ingredientes(nombre,unidad_base,stock_minimo,activo) VALUES('Harina con costo','kg',0,1)").run().lastInsertRowid);
+  const grupoCosteado = 9002;
+  db.prepare("INSERT INTO productos_venta(receta_grupo_id,precio_normal,precio_mayorista,usuario_id) VALUES(?,?,?,?)").run(grupoCosteado, 12, 10, admin);
+  const recetaCosteada = Number(db.prepare("INSERT INTO recetas(grupo_id,version,nombre_producto,rendimiento,vigente,activo,usuario_id) VALUES(?,1,'Pan costeado',1,1,1,?)").run(grupoCosteado, admin).lastInsertRowid);
+  db.prepare("INSERT INTO receta_items(receta_id,ingrediente_id,cantidad_base) VALUES(?,?,1)").run(recetaCosteada, ingredienteId);
+  const produccionId = Number(db.prepare("INSERT INTO producciones(receta_id,periodo_id,tandas,unidades_producidas,costo_materia_prima,costo_mano_obra,costo_indirectos,costo_total,costo_unidad,fecha,usuario_id) VALUES(?,?,1,2,3,0,0,3,1.5,'2026-07-01',?)").run(recetaCosteada, periodoId, admin).lastInsertRowid);
+  db.prepare("INSERT INTO log_auditoria(usuario_id,entidad,entidad_id,accion,datos_antes,datos_despues) VALUES(?, 'produccion', ?, 'crear', NULL, ?)").run(admin, produccionId, JSON.stringify([{ ingredienteId, consumos: [{ loteId: 1, cantidad: 2, costoUnidadBase: 1.5 }] }]));
+
+  const response = await pedir({ ...payload, items: [{ receta_grupo_id: grupoCosteado, cantidad: 1 }] }, "venta-con-costo");
+  assert.equal(response.status, 201);
+  const venta = await response.json();
+  const lineas = db.prepare("SELECT pc.codigo,l.debe_minor,l.haber_minor FROM fin_lineas_asiento l JOIN fin_asientos_contables a ON a.id=l.asiento_id JOIN fin_plan_cuentas pc ON pc.id=l.cuenta_contable_id WHERE a.evento_id=(SELECT evento_emision_id FROM fin_documentos_cxc WHERE venta_id=?) ORDER BY pc.codigo").all(venta.id);
+  assert.deepEqual(lineas, [
+    { codigo: "1201", debe_minor: 1200, haber_minor: 0 }, { codigo: "1301", debe_minor: 0, haber_minor: 150 },
+    { codigo: "4101", debe_minor: 0, haber_minor: 1200 }, { codigo: "5101", debe_minor: 150, haber_minor: 0 },
+  ]);
+});
+
 test("idempotencia HTTP no duplica y rechaza payload distinto", async () => {
   const primero = await pedir(payload, "venta-cxc-2");
   const resultado = await primero.json();

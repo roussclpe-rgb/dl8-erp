@@ -16,6 +16,7 @@ export const eliminarProveedor = (id) => client.delete(`/proveedores/${id}`).the
 
 // ---------- Ingredientes ----------
 export const listarIngredientes = () => client.get("/ingredientes").then((r) => r.data);
+export const estimarNutricionIngrediente = (nombre) => client.get("/ingredientes/nutricion/estimar", { params: { nombre } }).then((r) => r.data);
 export const crearIngrediente = (data) => client.post("/ingredientes", data).then((r) => r.data);
 export const editarIngrediente = (id, data) => client.put(`/ingredientes/${id}`, data).then((r) => r.data);
 export const eliminarIngrediente = (id) => client.delete(`/ingredientes/${id}`).then((r) => r.data);
@@ -39,6 +40,7 @@ export const crearNotaCreditoCxP = (id, data, idempotencyKey) => client.post(`/c
 // ---------- Ajustes ----------
 export const listarAjustes = () => client.get("/ajustes").then((r) => r.data);
 export const crearAjuste = (data) => client.post("/ajustes", data).then((r) => r.data);
+export const crearInventarioInicial = (data) => client.post("/ajustes/inventario-inicial", data).then((r) => r.data);
 
 // ---------- Recetas ----------
 export const listarRecetas = () => client.get("/recetas").then((r) => r.data);
@@ -51,6 +53,10 @@ export const eliminarReceta = (id) => client.delete(`/recetas/${id}`).then((r) =
 export const listarProducciones = () => client.get("/producciones").then((r) => r.data);
 export const crearProduccion = (data) => client.post("/producciones", data).then((r) => r.data);
 export const editarProduccion = (id, data) => client.put(`/producciones/${id}`, data).then((r) => r.data);
+export const factibilidadProduccion = () => client.get("/producciones/factibilidad").then((r) => r.data);
+export const generarListaCompraFaltantes = () => client.post("/producciones/faltantes/lista-compra").then((r) => r.data);
+
+export const crearExistenciaProducto = (data) => client.post("/stock-producto/existencias", data).then((r) => r.data);
 
 // ---------- Mermas ----------
 export const listarMermas = () => client.get("/mermas").then((r) => r.data);
@@ -74,6 +80,16 @@ export const reporteMermas = (desde, hasta) =>
 export const reporteRotacion = (dias) => client.get("/reportes/rotacion", { params: { dias } }).then((r) => r.data);
 export const reporteSugerenciasCompra = () => client.get("/reportes/sugerencias-compra").then((r) => r.data);
 export const reporteCaja = (desde, hasta) => client.get("/reportes/caja", { params: { desde, hasta } }).then((r) => r.data);
+
+// ---------- Objetivos del negocio (módulo comercial independiente) ----------
+export const listarObjetivosNegocio = () => client.get("/objetivos-negocio").then((r) => r.data);
+export const crearObjetivoNegocio = (data) => client.post("/objetivos-negocio", data).then((r) => r.data);
+export const actualizarObjetivoNegocio = (id, data) => client.put(`/objetivos-negocio/${id}`, data).then((r) => r.data);
+export const cambiarEstadoObjetivoNegocio = (id, estado) => client.patch(`/objetivos-negocio/${id}/estado`, { estado }).then((r) => r.data);
+export const opcionesObjetivosNegocio = () => client.get("/objetivos-negocio/opciones").then((r) => r.data);
+export const simulacionPoliticaObjetivoNegocio = (id) => client.get(`/objetivos-negocio/${id}/simulacion-politica`).then((r) => r.data);
+export const dashboardObjetivosNegocio = () => client.get("/objetivos-negocio/dashboard").then((r) => r.data);
+export const simuladorObjetivoNegocio = (id, valorObjetivo) => client.post(`/objetivos-negocio/${id}/simulador`, { valor_objetivo: valorObjetivo }).then((r) => r.data);
 
 // ---------- Clientes ----------
 export const listarClientes = () =>
@@ -109,6 +125,9 @@ export const obtenerVenta = (id) =>
 
 export const crearVenta = (data, idempotencyKey) =>
   client.post("/ventas", data, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined }).then((r) => r.data);
+
+export const corregirFechaVenta = (id, fecha, idempotencyKey) =>
+  client.put(`/ventas/${id}/fecha`, { fecha }, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined }).then((r) => r.data);
 
 export const registrarPago = (id, pagos, turnoCajaId, idempotencyKey) =>
   client
@@ -150,6 +169,8 @@ export const crearCuentaFinanciera = (entidadId, data) => client.post(`/finanzas
 export const editarCuentaFinanciera = (entidadId, id, data) => client.put(`/finanzas/entidades/${entidadId}/cuentas-financieras/${id}`, data).then((r) => r.data);
 export const listarPropietariosFinancieros = () => client.get("/finanzas/propietarios").then((r) => r.data);
 export const crearBolsillo = (entidadId, data) => client.post(`/finanzas/entidades/${entidadId}/bolsillos`, data).then((r) => r.data);
+export const editarBolsillo = (entidadId, id, data) => client.put(`/finanzas/entidades/${entidadId}/bolsillos/${id}`, data).then((r) => r.data);
+export const eliminarBolsillo = (entidadId, id) => client.delete(`/finanzas/entidades/${entidadId}/bolsillos/${id}`).then((r) => r.data);
 export const saldosTesoreria = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/saldos/tesoreria`).then((r) => r.data);
 export const saldosBolsillos = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/saldos/bolsillos`).then((r) => r.data);
 export const saldosContables = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/saldos/contables`).then((r) => r.data);
@@ -158,6 +179,8 @@ export const saldoCuentaFinanciera = (e, id) => client.get(`/finanzas/entidades/
 export const utilidadPeriodoActual = (e) => client.get(`/finanzas/entidades/${e}/utilidad/periodo-actual`).then((r) => r.data);
 export const listarEventosFinancieros = (entidadId) => client.get(`/finanzas/entidades/${entidadId}/eventos`).then((r) => r.data);
 export const registrarSaldoInicial = (entidadId, data, key) => client.post(`/finanzas/entidades/${entidadId}/saldos-iniciales`, data, { headers: { "Idempotency-Key": key } }).then((r) => r.data);
+export const registrarSaldoInicialCxC = (entidadId, data, key) => client.post(`/finanzas/entidades/${entidadId}/saldos-iniciales-cxc`, data, { headers: { "Idempotency-Key": key } }).then((r) => r.data);
+export const editarSaldoInicialCxC = (entidadId, ventaId, data, key) => client.put(`/finanzas/entidades/${entidadId}/saldos-iniciales-cxc/${ventaId}`, data, { headers: { "Idempotency-Key": key } }).then((r) => r.data);
 export const registrarTransferenciaFinanciera = (entidadId, data, key) => client.post(`/finanzas/entidades/${entidadId}/transferencias-internas`, data, { headers: { "Idempotency-Key": key } }).then((r) => r.data);
 export const revertirEventoFinanciero = (entidadId, eventoId, key) => client.post(`/finanzas/entidades/${entidadId}/eventos/${eventoId}/reversiones`, {}, { headers: { "Idempotency-Key": key } }).then((r) => r.data);
 export const cambiarEstadoCatalogoFinanciero = (entidadId, tipo, id, estado) => client.patch(`/finanzas/entidades/${entidadId}/${tipo}/${id}/estado`, { estado }).then((r) => r.data);
@@ -166,7 +189,10 @@ export const dashboardPoliticasFinancieras = (e, params) => client.get(`/finanza
 export const obtenerPoliticaFinanciera = (e, id) => client.get(`/finanzas/entidades/${e}/politicas-financieras/${id}`).then((r) => r.data);
 export const crearPoliticaFinanciera = (e, data) => client.post(`/finanzas/entidades/${e}/politicas-financieras`, data).then((r) => r.data);
 export const crearVersionPoliticaFinanciera = (e, id, data) => client.post(`/finanzas/entidades/${e}/politicas-financieras/${id}/versiones`, data).then((r) => r.data);
-export const activarPoliticaFinanciera = (e, id, predeterminada = true) => client.post(`/finanzas/entidades/${e}/politicas-financieras/${id}/activar`, { predeterminada }).then((r) => r.data);
+export const eliminarPoliticaFinanciera = (e, id) => client.delete(`/finanzas/entidades/${e}/politicas-financieras/${id}`).then((r) => r.data);
+export const activarPoliticaFinanciera = (e, id, predeterminada = true, fechaActivacion = null) => client.post(`/finanzas/entidades/${e}/politicas-financieras/${id}/activar`, { predeterminada, fecha_activacion: fechaActivacion }).then((r) => r.data);
+export const listarCobrosPendientesPolitica = (e, params) => client.get(`/finanzas/entidades/${e}/politicas-financieras/cobros-pendientes`, { params }).then((r) => r.data);
+export const procesarCobrosPendientesPolitica = (e, id, data) => client.post(`/finanzas/entidades/${e}/politicas-financieras/${id}/procesar-cobros-pendientes`, data).then((r) => r.data);
 export const simularPoliticaFinanciera = (e, id, importeIngresoMinor) => client.post(`/finanzas/entidades/${e}/politicas-financieras/${id}/simular`, { importe_ingreso_minor: importeIngresoMinor }).then((r) => r.data);
 export const listarPlantillasFinancieras = () => client.get('/finanzas/politicas-financieras/plantillas').then((r) => r.data);
 export const aplicarPlantillaFinanciera = (e, codigo) => client.post(`/finanzas/entidades/${e}/politicas-financieras/plantillas/${codigo}`).then((r) => r.data);
@@ -177,6 +203,7 @@ export const crearMetaFinanciera = (e, data) => client.post(`/finanzas/entidades
 export const actualizarMetaFinanciera = (e, id, data) => client.put(`/finanzas/entidades/${e}/metas-financieras/${id}`, data).then((r) => r.data);
 export const cambiarEstadoMetaFinanciera = (e, id, estado) => client.patch(`/finanzas/entidades/${e}/metas-financieras/${id}/estado`, { estado }).then((r) => r.data);
 export const aportesMetaFinanciera = (e, id) => client.get(`/finanzas/entidades/${e}/metas-financieras/${id}/aportes`).then((r) => r.data);
+export const proyeccionMetaFinanciera = (e, id, { dias = 30, precio = "minorista" } = {}) => client.get(`/finanzas/entidades/${e}/metas-financieras/${id}/proyeccion`, { params: { dias, precio } }).then((r) => r.data);
 export const listarAlertasFinancieras = (e) => client.get(`/finanzas/entidades/${e}/alertas-financieras`).then((r) => r.data);
 export const cambiarEstadoAlertaFinanciera = (e, id, estado) => client.patch(`/finanzas/entidades/${e}/alertas-financieras/${id}/estado`, { estado }).then((r) => r.data);
 export const configuracionAlertasFinancieras = (e) => client.get(`/finanzas/entidades/${e}/alertas-financieras/configuracion`).then((r) => r.data);
@@ -194,6 +221,8 @@ export const registrarAporteSocio = (e, data, key) => client.post(`/finanzas/ent
 export const registrarPrestamoRecibido = (e, data, key) => client.post(`/finanzas/entidades/${e}/prestamos-recibidos`, data, { headers: { 'Idempotency-Key': key } }).then((r) => r.data);
 export const listarFlujosDinero = (e, params) => client.get(`/finanzas/entidades/${e}/flujo-dinero`, { params }).then((r) => r.data);
 export const flujoDineroEvento = (e, id) => client.get(`/finanzas/entidades/${e}/eventos/${id}/flujo-dinero`).then((r) => r.data);
+export const vistaPreviaReversionPolitica = (e, eventoId) => client.get(`/finanzas/entidades/${e}/eventos/${eventoId}/politica-financiera/reversion-vista-previa`).then((r) => r.data);
+export const revertirDistribucionPolitica = (e, eventoId, motivo) => client.post(`/finanzas/entidades/${e}/eventos/${eventoId}/politica-financiera/reversiones`, { motivo }).then((r) => r.data);
 export const auditoriaMpf = (e, params) => client.get(`/finanzas/entidades/${e}/auditoria-mpf`, { params }).then((r) => r.data);
 export const historialAlertaFinanciera = (e, id) => client.get(`/finanzas/entidades/${e}/alertas-financieras/${id}/historial`).then((r) => r.data);
 

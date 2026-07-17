@@ -3,6 +3,7 @@ const { db } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { stockIngrediente, costoPromedioActual } = require("../services/fifo");
 const { UNIDADES_BASE_PERMITIDAS } = require("../services/unidades");
+const { buscarNutricion } = require("../services/nutricion");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -21,23 +22,31 @@ router.get("/", (req, res) => {
   res.json(conStock);
 });
 
+router.get("/nutricion/estimar", (req, res) => {
+  const estimacion = buscarNutricion(req.query.nombre);
+  if (!estimacion) return res.status(404).json({ error: "No encontramos datos automaticos para este ingrediente. Usa un nombre mas especifico." });
+  res.json(estimacion);
+});
+
 router.post("/", requireRole("admin", "operador"), (req, res) => {
-  const { nombre, unidad_base, stock_minimo, dias_cobertura_deseados } = req.body;
+  const { nombre, unidad_base, stock_minimo, dias_cobertura_deseados, calorias_por_100, proteinas_por_100, carbohidratos_por_100, grasas_por_100, fibra_por_100, sodio_por_100 } = req.body;
   if (!nombre?.trim()) return res.status(400).json({ error: "El nombre es obligatorio" });
   if (!UNIDADES_BASE_PERMITIDAS.includes(unidad_base)) {
     return res.status(400).json({ error: `Unidad base inválida. Usa una de: ${UNIDADES_BASE_PERMITIDAS.join(", ")}` });
   }
+  const nutricion = [calorias_por_100, proteinas_por_100, carbohidratos_por_100, grasas_por_100, fibra_por_100, sodio_por_100].map((valor) => Number(valor || 0));
+  if (nutricion.some((valor) => !Number.isFinite(valor) || valor < 0)) return res.status(400).json({ error: "Los valores nutricionales deben ser numeros mayores o iguales a 0" });
   const info = db.prepare(`
-    INSERT INTO ingredientes (nombre, unidad_base, stock_minimo, dias_cobertura_deseados)
-    VALUES (?, ?, ?, ?)
-  `).run(nombre, unidad_base, stock_minimo || 0, dias_cobertura_deseados || 7);
+    INSERT INTO ingredientes (nombre, unidad_base, stock_minimo, dias_cobertura_deseados, calorias_por_100, proteinas_por_100, carbohidratos_por_100, grasas_por_100, fibra_por_100, sodio_por_100)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(nombre, unidad_base, stock_minimo || 0, dias_cobertura_deseados || 7, ...nutricion);
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
 router.put("/:id", requireRole("admin", "operador"), (req, res) => {
   const antes = db.prepare("SELECT * FROM ingredientes WHERE id = ?").get(req.params.id);
   if (!antes) return res.status(404).json({ error: "No existe" });
-  const { nombre, unidad_base, stock_minimo, dias_cobertura_deseados } = req.body;
+  const { nombre, unidad_base, stock_minimo, dias_cobertura_deseados, calorias_por_100, proteinas_por_100, carbohidratos_por_100, grasas_por_100, fibra_por_100, sodio_por_100 } = req.body;
 
   // Cambiar la unidad base de un ingrediente con historial de compras ya
   // registrado invalidaría todos los costos pasados: se bloquea.
@@ -48,11 +57,16 @@ router.put("/:id", requireRole("admin", "operador"), (req, res) => {
     }
   }
 
+  const nutricion = [calorias_por_100, proteinas_por_100, carbohidratos_por_100, grasas_por_100, fibra_por_100, sodio_por_100];
+  if (nutricion.some((valor) => valor !== undefined && (!Number.isFinite(Number(valor)) || Number(valor) < 0))) return res.status(400).json({ error: "Los valores nutricionales deben ser numeros mayores o iguales a 0" });
   db.prepare(`
-    UPDATE ingredientes SET nombre=?, unidad_base=?, stock_minimo=?, dias_cobertura_deseados=?, actualizado_en=datetime('now')
+    UPDATE ingredientes SET nombre=?, unidad_base=?, stock_minimo=?, dias_cobertura_deseados=?, calorias_por_100=?, proteinas_por_100=?, carbohidratos_por_100=?, grasas_por_100=?, fibra_por_100=?, sodio_por_100=?, actualizado_en=datetime('now')
     WHERE id=?
   `).run(nombre ?? antes.nombre, unidad_base ?? antes.unidad_base, stock_minimo ?? antes.stock_minimo,
-         dias_cobertura_deseados ?? antes.dias_cobertura_deseados, req.params.id);
+         dias_cobertura_deseados ?? antes.dias_cobertura_deseados,
+         calorias_por_100 ?? antes.calorias_por_100, proteinas_por_100 ?? antes.proteinas_por_100,
+         carbohidratos_por_100 ?? antes.carbohidratos_por_100, grasas_por_100 ?? antes.grasas_por_100,
+         fibra_por_100 ?? antes.fibra_por_100, sodio_por_100 ?? antes.sodio_por_100, req.params.id);
 
   db.prepare(`INSERT INTO log_auditoria (usuario_id, entidad, entidad_id, accion, datos_antes, datos_despues) VALUES (?, 'ingrediente', ?, 'editar', ?, ?)`)
     .run(req.usuario.id, req.params.id, JSON.stringify(antes), JSON.stringify(req.body));

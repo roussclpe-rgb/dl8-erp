@@ -1,14 +1,14 @@
 const DEFINICIONES = {
-  mpf_politicas: `CREATE TABLE mpf_politicas_nueva (id INTEGER PRIMARY KEY AUTOINCREMENT, entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), nombre TEXT NOT NULL, evento_tipo TEXT NOT NULL CHECK(evento_tipo IN ('cobro_venta','aporte','prestamo')), version INTEGER NOT NULL DEFAULT 1, estado TEXT NOT NULL DEFAULT 'borrador' CHECK(estado IN ('borrador','activa','inactiva')), es_predeterminada INTEGER NOT NULL DEFAULT 0 CHECK(es_predeterminada IN (0,1)), recupera_costo INTEGER NOT NULL DEFAULT 0 CHECK(recupera_costo IN (0,1)), bolsillo_costo_id INTEGER REFERENCES fin_bolsillos(id), creado_por INTEGER NOT NULL REFERENCES usuarios(id), creado_en TEXT NOT NULL DEFAULT(datetime('now')), UNIQUE(entidad_id,nombre,version))`,
-  mpf_reglas: `CREATE TABLE mpf_reglas_nueva (id INTEGER PRIMARY KEY AUTOINCREMENT, politica_id INTEGER NOT NULL REFERENCES mpf_politicas(id), orden INTEGER NOT NULL CHECK(orden>0), nombre TEXT NOT NULL, base TEXT NOT NULL CHECK(base IN ('ingreso','remanente')), tipo TEXT NOT NULL CHECK(tipo IN ('porcentaje','importe_fijo')), valor_minor INTEGER NOT NULL CHECK(valor_minor>=0), bolsillo_id INTEGER NOT NULL REFERENCES fin_bolsillos(id), meta_id INTEGER REFERENCES mpf_metas_financieras(id), condicion_json TEXT NOT NULL DEFAULT '{}', accion TEXT NOT NULL DEFAULT 'aplicar' CHECK(accion IN ('aplicar','resto','omitir')), bolsillo_destino_id INTEGER REFERENCES fin_bolsillos(id), meta_destino_id INTEGER REFERENCES mpf_metas_financieras(id), UNIQUE(politica_id,orden))`,
-  mpf_aplicaciones: `CREATE TABLE mpf_aplicaciones_nueva (id INTEGER PRIMARY KEY AUTOINCREMENT, entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), evento_financiero_id INTEGER NOT NULL UNIQUE REFERENCES fin_eventos_financieros(id), politica_id INTEGER NOT NULL REFERENCES mpf_politicas(id), politica_version INTEGER NOT NULL, importe_ingreso_minor INTEGER NOT NULL CHECK(importe_ingreso_minor>0), costo_recuperado_minor INTEGER NOT NULL DEFAULT 0 CHECK(costo_recuperado_minor>=0), importe_distribuido_minor INTEGER NOT NULL CHECK(importe_distribuido_minor>=0), creado_en TEXT NOT NULL DEFAULT(datetime('now')))`,
+  mpf_politicas: `CREATE TABLE mpf_politicas_nueva (id INTEGER PRIMARY KEY AUTOINCREMENT, entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), nombre TEXT NOT NULL, evento_tipo TEXT NOT NULL CHECK(evento_tipo IN ('cobro_venta','aporte','prestamo')), version INTEGER NOT NULL DEFAULT 1, estado TEXT NOT NULL DEFAULT 'borrador' CHECK(estado IN ('borrador','activa','inactiva')), es_predeterminada INTEGER NOT NULL DEFAULT 0 CHECK(es_predeterminada IN (0,1)), recupera_costo INTEGER NOT NULL DEFAULT 0 CHECK(recupera_costo IN (0,1)), modo_recuperacion_costo TEXT NOT NULL DEFAULT 'no_recuperar' CHECK(modo_recuperacion_costo IN ('real_calculado','fijo_unidad','no_recuperar')), costo_fijo_unidad_minor INTEGER, moneda_costo_fijo TEXT, respaldo_costo_real TEXT NOT NULL DEFAULT 'sin_recuperar' CHECK(respaldo_costo_real IN ('fijo_unidad','sin_recuperar','bloquear')), bolsillo_costo_id INTEGER REFERENCES fin_bolsillos(id), creado_por INTEGER NOT NULL REFERENCES usuarios(id), creado_en TEXT NOT NULL DEFAULT(datetime('now')), UNIQUE(entidad_id,nombre,version))`,
+  mpf_reglas: `CREATE TABLE mpf_reglas_nueva (id INTEGER PRIMARY KEY AUTOINCREMENT, politica_id INTEGER NOT NULL REFERENCES mpf_politicas(id), orden INTEGER NOT NULL CHECK(orden>0), nombre TEXT NOT NULL, base TEXT NOT NULL CHECK(base IN ('ingreso','remanente')), tipo TEXT NOT NULL CHECK(tipo IN ('porcentaje','importe_fijo')), valor_minor INTEGER NOT NULL CHECK(valor_minor>=0), bolsillo_id INTEGER NOT NULL REFERENCES fin_bolsillos(id), meta_id INTEGER REFERENCES mpf_metas_financieras(id), meta_accion_cumplida TEXT NOT NULL DEFAULT 'continuar' CHECK(meta_accion_cumplida IN ('continuar','detener','redirigir_bolsillo','redirigir_resto')), meta_bolsillo_redireccion_id INTEGER REFERENCES fin_bolsillos(id), condicion_json TEXT NOT NULL DEFAULT '{}', accion TEXT NOT NULL DEFAULT 'aplicar' CHECK(accion IN ('aplicar','resto','omitir')), bolsillo_destino_id INTEGER REFERENCES fin_bolsillos(id), meta_destino_id INTEGER REFERENCES mpf_metas_financieras(id), UNIQUE(politica_id,orden))`,
+  mpf_aplicaciones: `CREATE TABLE mpf_aplicaciones_nueva (id INTEGER PRIMARY KEY AUTOINCREMENT, entidad_id INTEGER NOT NULL REFERENCES fin_entidades_economicas(id), evento_financiero_id INTEGER NOT NULL UNIQUE REFERENCES fin_eventos_financieros(id), politica_id INTEGER NOT NULL REFERENCES mpf_politicas(id), politica_version INTEGER NOT NULL, importe_ingreso_minor INTEGER NOT NULL CHECK(importe_ingreso_minor>0), costo_recuperado_minor INTEGER NOT NULL DEFAULT 0 CHECK(costo_recuperado_minor>=0), modo_recuperacion_costo TEXT NOT NULL DEFAULT 'no_recuperar', costo_unidad_minor INTEGER, cantidad_costo REAL NOT NULL DEFAULT 0, origen_calculo_costo TEXT NOT NULL DEFAULT 'sin_recuperar', advertencia_costo TEXT, importe_distribuido_minor INTEGER NOT NULL CHECK(importe_distribuido_minor>=0), creado_en TEXT NOT NULL DEFAULT(datetime('now')))`,
   mpf_detalles_aplicacion: `CREATE TABLE mpf_detalles_aplicacion_nueva (id INTEGER PRIMARY KEY AUTOINCREMENT, aplicacion_id INTEGER NOT NULL REFERENCES mpf_aplicaciones(id), regla_id INTEGER NOT NULL REFERENCES mpf_reglas(id), bolsillo_id INTEGER NOT NULL REFERENCES fin_bolsillos(id), importe_minor INTEGER NOT NULL CHECK(importe_minor>=0), condicion_evaluada_json TEXT NOT NULL DEFAULT '{}')`,
 };
 
 const COLUMNAS = {
-  mpf_politicas: ["id", "entidad_id", "nombre", "evento_tipo", "version", "estado", "es_predeterminada", "recupera_costo", "bolsillo_costo_id", "creado_por", "creado_en"],
-  mpf_reglas: ["id", "politica_id", "orden", "nombre", "base", "tipo", "valor_minor", "bolsillo_id", "meta_id", "condicion_json", "accion", "bolsillo_destino_id", "meta_destino_id"],
-  mpf_aplicaciones: ["id", "entidad_id", "evento_financiero_id", "politica_id", "politica_version", "importe_ingreso_minor", "costo_recuperado_minor", "importe_distribuido_minor", "creado_en"],
+  mpf_politicas: ["id", "entidad_id", "nombre", "evento_tipo", "version", "estado", "es_predeterminada", "recupera_costo", "modo_recuperacion_costo", "costo_fijo_unidad_minor", "moneda_costo_fijo", "respaldo_costo_real", "bolsillo_costo_id", "creado_por", "creado_en"],
+  mpf_reglas: ["id", "politica_id", "orden", "nombre", "base", "tipo", "valor_minor", "bolsillo_id", "meta_id", "meta_accion_cumplida", "meta_bolsillo_redireccion_id", "condicion_json", "accion", "bolsillo_destino_id", "meta_destino_id"],
+  mpf_aplicaciones: ["id", "entidad_id", "evento_financiero_id", "politica_id", "politica_version", "importe_ingreso_minor", "costo_recuperado_minor", "modo_recuperacion_costo", "costo_unidad_minor", "cantidad_costo", "origen_calculo_costo", "advertencia_costo", "importe_distribuido_minor", "creado_en"],
   mpf_detalles_aplicacion: ["id", "aplicacion_id", "regla_id", "bolsillo_id", "importe_minor", "condicion_evaluada_json"],
 };
 
@@ -16,6 +16,11 @@ function columnas(db, tabla) { return new Set(db.prepare(`PRAGMA table_info(${ta
 function expresion(tabla, columna, existentes) {
   if (existentes.has(columna)) return columna;
   if (["recupera_costo", "costo_recuperado_minor"].includes(columna)) return "0";
+  if (columna === "modo_recuperacion_costo") return existentes.has("recupera_costo") ? "CASE WHEN recupera_costo=1 THEN 'real_calculado' ELSE 'no_recuperar' END" : "'no_recuperar'";
+  if (columna === "respaldo_costo_real") return "'sin_recuperar'";
+  if (columna === "meta_accion_cumplida") return "'continuar'";
+  if (columna === "cantidad_costo") return "0";
+  if (columna === "origen_calculo_costo") return "'sin_recuperar'";
   if (["condicion_json", "condicion_evaluada_json"].includes(columna)) return "'{}'";
   if (columna === "accion") return "'aplicar'";
   return "NULL";
@@ -23,9 +28,9 @@ function expresion(tabla, columna, existentes) {
 
 function requiereMigracionMpf(db) {
   const requeridos = {
-    mpf_politicas: ["recupera_costo", "bolsillo_costo_id", "CHECK(recupera_costo IN (0,1))"],
-    mpf_reglas: ["meta_id", "condicion_json", "accion", "bolsillo_destino_id", "meta_destino_id", "CHECK(accion IN ('aplicar','resto','omitir'))"],
-    mpf_aplicaciones: ["costo_recuperado_minor", "CHECK(costo_recuperado_minor>=0)"],
+    mpf_politicas: ["recupera_costo", "modo_recuperacion_costo", "costo_fijo_unidad_minor", "moneda_costo_fijo", "respaldo_costo_real", "CHECK(modo_recuperacion_costo IN ('real_calculado','fijo_unidad','no_recuperar'))"],
+    mpf_reglas: ["meta_id", "meta_accion_cumplida", "meta_bolsillo_redireccion_id", "condicion_json", "accion", "bolsillo_destino_id", "meta_destino_id", "CHECK(meta_accion_cumplida IN ('continuar','detener','redirigir_bolsillo','redirigir_resto'))"],
+    mpf_aplicaciones: ["costo_recuperado_minor", "modo_recuperacion_costo", "costo_unidad_minor", "cantidad_costo", "origen_calculo_costo", "advertencia_costo", "CHECK(costo_recuperado_minor>=0)"],
     mpf_detalles_aplicacion: ["condicion_evaluada_json"],
   };
   return Object.entries(requeridos).some(([tabla, fragmentos]) => {

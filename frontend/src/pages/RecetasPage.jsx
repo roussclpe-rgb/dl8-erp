@@ -23,6 +23,7 @@ import EditIcon from "@mui/icons-material/EditOutlined";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
 import HistoryIcon from "@mui/icons-material/HistoryOutlined";
+import NutritionIcon from "@mui/icons-material/MonitorHeartOutlined";
 
 import PageHeader from "../components/PageHeader";
 import DataTable from "../components/DataTable";
@@ -63,6 +64,7 @@ export default function RecetasPage() {
   const [deleting, setDeleting] = useState(false);
   const [historial, setHistorial] = useState(null);
   const [historialItems, setHistorialItems] = useState([]);
+  const [nutricionReceta, setNutricionReceta] = useState(null);
 
   const {
     register,
@@ -160,6 +162,7 @@ export default function RecetasPage() {
     { field: "minutos_mano_obra", headerName: "Min. mano de obra", align: "right" },
     { field: "costoMateriaPrima", headerName: "Costo M.P.", align: "right", renderCell: (r) => formatoNumero(r.costoMateriaPrima) },
     { field: "costoManoObra", headerName: "Costo M.O.", align: "right", renderCell: (r) => formatoNumero(r.costoManoObra) },
+    { field: "calorias", headerName: "kcal / unidad", align: "right", renderCell: (r) => formatoNumero(r.nutricion?.porUnidad?.calorias, 0) },
     {
       field: "incompleto",
       headerName: "Estado",
@@ -174,6 +177,9 @@ export default function RecetasPage() {
       sortable: false,
       renderCell: (r) => (
         <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+          <Tooltip title="Tabla nutricional">
+            <IconButton size="small" color="primary" onClick={() => setNutricionReceta(r)}><NutritionIcon fontSize="small" /></IconButton>
+          </Tooltip>
           <Tooltip title="Historial de versiones">
             <IconButton size="small" onClick={() => abrirHistorial(r)}>
               <HistoryIcon fontSize="small" />
@@ -313,6 +319,18 @@ export default function RecetasPage() {
                 <TableCell>{h.vigente ? <StatusChip label="Vigente" tone="success" /> : <StatusChip label="Anterior" tone="default" />}</TableCell>
                 <TableCell>{formatoFecha(h.creado_en)}</TableCell>
               </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </FormDialog>
+
+      <FormDialog open={!!nutricionReceta} onClose={() => setNutricionReceta(null)} title={`Tabla nutricional — ${nutricionReceta?.nombre_producto || ""}`} maxWidth="sm">
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Valores estimados por unidad producida. La receta rinde {formatoNumero(nutricionReceta?.rendimiento)} unidades.</Typography>
+        <Table size="small">
+          <TableHead><TableRow><TableCell>Nutriente</TableCell><TableCell align="right">Por unidad</TableCell><TableCell align="right">Receta completa</TableCell></TableRow></TableHead>
+          <TableBody>
+            {[["Calorías", "calorias", "kcal"], ["Proteínas", "proteinas", "g"], ["Carbohidratos", "carbohidratos", "g"], ["Grasas totales", "grasas", "g"], ["Fibra", "fibra", "g"], ["Sodio", "sodio", "mg"]].map(([label, field, unit]) => (
+              <TableRow key={field}><TableCell>{label}</TableCell><TableCell align="right">{formatoNumero(nutricionReceta?.nutricion?.porUnidad?.[field])} {unit}</TableCell><TableCell align="right">{formatoNumero(nutricionReceta?.nutricion?.total?.[field])} {unit}</TableCell></TableRow>
             ))}
           </TableBody>
         </Table>

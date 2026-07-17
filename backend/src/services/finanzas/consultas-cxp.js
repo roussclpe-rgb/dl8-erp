@@ -50,7 +50,9 @@ function detalleDocumentoCxP({ documentoId, usuarioId }) {
   const id = Number(documentoId);
   if (!Number.isSafeInteger(id) || id <= 0) throw fallo("Documento CxP no encontrado", 404);
   const aplicado = saldoExpr("d");
-  const documento = db.prepare(`SELECT d.*,e.nombre entidad_nombre,p.nombre proveedor_nombre,${aplicado} aplicado_minor,d.importe_original_minor-${aplicado} saldo_minor,
+  // l.* también contiene una columna id; preservamos explícitamente el ID de
+  // la CxP para que el cliente no intente pagar usando el ID del lote.
+  const documento = db.prepare(`SELECT d.*, d.id AS documento_cxp_id, e.nombre entidad_nombre,p.nombre proveedor_nombre,${aplicado} aplicado_minor,d.importe_original_minor-${aplicado} saldo_minor,
       l.*,i.nombre ingrediente_nombre,i.unidad_base
     FROM fin_documentos_cxp d JOIN fin_entidades_economicas e ON e.id=d.entidad_id JOIN proveedores p ON p.id=d.proveedor_id
     JOIN lotes_compra l ON l.id=d.lote_compra_id JOIN ingredientes i ON i.id=l.ingrediente_id WHERE d.id=?`).get(id);
@@ -74,7 +76,7 @@ function detalleDocumentoCxP({ documentoId, usuarioId }) {
     pagosMap.get(aplicacion.pago_cxp_id).aplicaciones.push({ id: aplicacion.id, importe_minor: aplicacion.importe_minor, importe: aplicacion.importe, estado: aplicacion.estado, fecha_aplicacion: aplicacion.fecha_aplicacion });
   });
   return {
-    documento: { ...documento, importe_original: documento.importe_original_minor / 100, aplicado: documento.aplicado_minor / 100, saldo: documento.saldo_minor / 100, historico: false },
+    documento: { ...documento, id: documento.documento_cxp_id, importe_original: documento.importe_original_minor / 100, aplicado: documento.aplicado_minor / 100, saldo: documento.saldo_minor / 100, historico: false },
     compra: { id: documento.lote_compra_id, ingrediente_id: documento.ingrediente_id, ingrediente_nombre: documento.ingrediente_nombre, unidad_base: documento.unidad_base, fecha_compra: documento.fecha_compra, presentacion: documento.presentacion, cantidad_comprada: documento.cantidad_comprada, unidad_compra: documento.unidad_compra, cantidad_restante: documento.cantidad_restante, costo_total: documento.costo_total },
     proveedor: { id: documento.proveedor_id, nombre: documento.proveedor_nombre },
     evento_emision: { ...eventoEmision, lineas: lineasEmision },

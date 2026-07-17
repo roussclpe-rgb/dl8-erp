@@ -135,7 +135,7 @@ export default function MermasPage() {
               <Grid item xs={12}>
                 <Alert severity="info">
                   Stock disponible de producto terminado: <strong>{formatoNumero(stockDisponible.stock)}</strong> unidades
-                  (producido {formatoNumero(stockDisponible.producido)}, mermado {formatoNumero(stockDisponible.mermado)}).
+                  (producido {formatoNumero(stockDisponible.producido)}, stock existente {formatoNumero(stockDisponible.existente || 0)}, mermado {formatoNumero(stockDisponible.mermado)}).
                 </Alert>
               </Grid>
             )}

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Box, Grid, TextField, MenuItem, Button, Stack, IconButton, Tooltip } from "@mui/material";
+import { Box, Grid, TextField, MenuItem, Button, Stack, IconButton, Tooltip, Divider, Typography } from "@mui/material";
 import EditIcon from "@mui/icons-material/EditOutlined";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 
@@ -14,7 +14,7 @@ import StatusChip from "../components/StatusChip";
 import { useAuth } from "../context/AuthContext";
 import { useNotify } from "../hooks/useNotify";
 import { formatoNumero } from "../utils/format";
-import { listarIngredientes, crearIngrediente, editarIngrediente, eliminarIngrediente } from "../api/endpoints";
+import { listarIngredientes, crearIngrediente, editarIngrediente, eliminarIngrediente, estimarNutricionIngrediente } from "../api/endpoints";
 
 const UNIDADES = ["g", "kg", "ml", "l", "unidad", "lb", "oz"];
 
@@ -23,9 +23,11 @@ const schema = z.object({
   unidad_base: z.enum(UNIDADES, { errorMap: () => ({ message: "Selecciona una unidad válida" }) }),
   stock_minimo: z.coerce.number().min(0, "Debe ser 0 o mayor"),
   dias_cobertura_deseados: z.coerce.number().int().min(1, "Debe ser al menos 1 día"),
+  calorias_por_100: z.coerce.number().min(0), proteinas_por_100: z.coerce.number().min(0), carbohidratos_por_100: z.coerce.number().min(0),
+  grasas_por_100: z.coerce.number().min(0), fibra_por_100: z.coerce.number().min(0), sodio_por_100: z.coerce.number().min(0),
 });
 
-const defaultValues = { nombre: "", unidad_base: "g", stock_minimo: 0, dias_cobertura_deseados: 7 };
+const defaultValues = { nombre: "", unidad_base: "g", stock_minimo: 0, dias_cobertura_deseados: 7, calorias_por_100: 0, proteinas_por_100: 0, carbohidratos_por_100: 0, grasas_por_100: 0, fibra_por_100: 0, sodio_por_100: 0 };
 
 export default function IngredientesPage() {
   const { hasRole } = useAuth();
@@ -43,6 +45,8 @@ export default function IngredientesPage() {
     handleSubmit,
     control,
     reset,
+    getValues,
+    setValue,
     formState: { errors },
   } = useForm({ resolver: zodResolver(schema), defaultValues });
 
@@ -74,6 +78,8 @@ export default function IngredientesPage() {
       unidad_base: row.unidad_base,
       stock_minimo: row.stock_minimo,
       dias_cobertura_deseados: row.dias_cobertura_deseados,
+      calorias_por_100: row.calorias_por_100, proteinas_por_100: row.proteinas_por_100, carbohidratos_por_100: row.carbohidratos_por_100,
+      grasas_por_100: row.grasas_por_100, fibra_por_100: row.fibra_por_100, sodio_por_100: row.sodio_por_100,
     });
     setDialogOpen(true);
   };
@@ -111,6 +117,17 @@ export default function IngredientesPage() {
     }
   };
 
+  const completarNutricion = async () => {
+    const nombre = getValues("nombre")?.trim();
+    if (!nombre) return notify.error("Escribe primero el nombre del ingrediente");
+    setSaving(true);
+    try {
+      const datos = await estimarNutricionIngrediente(nombre);
+      for (const campo of ["calorias", "proteinas", "carbohidratos", "grasas", "fibra", "sodio"]) setValue(`${campo}_por_100`, datos[campo], { shouldValidate: true });
+      notify.success(`Macros completados con valores de ${datos.referencia}`);
+    } catch (e) { notify.error(e); } finally { setSaving(false); }
+  };
+
   const puedeEscribir = hasRole("admin", "operador");
   const puedeEliminar = hasRole("admin");
 
@@ -119,6 +136,7 @@ export default function IngredientesPage() {
     { field: "unidad_base", headerName: "Unidad" },
     { field: "stock", headerName: "Stock", align: "right", renderCell: (r) => formatoNumero(r.stock) },
     { field: "costoPromedio", headerName: "Costo promedio", align: "right", renderCell: (r) => formatoNumero(r.costoPromedio) },
+    { field: "calorias_por_100", headerName: "kcal / 100", align: "right", renderCell: (r) => formatoNumero(r.calorias_por_100, 0) },
     { field: "stock_minimo", headerName: "Stock mínimo", align: "right", renderCell: (r) => formatoNumero(r.stock_minimo) },
     { field: "dias_cobertura_deseados", headerName: "Cobertura (días)", align: "right" },
     {
@@ -214,6 +232,17 @@ export default function IngredientesPage() {
                 helperText={errors.dias_cobertura_deseados?.message}
               />
             </Grid>
+            <Grid item xs={12}>
+              <Divider sx={{ my: 0.5 }} />
+              <Typography variant="subtitle2" sx={{ mt: 2 }}>Información nutricional</Typography>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                <Typography variant="caption" color="text.secondary">Valores por cada 100 unidades de la unidad base. Sodio en mg; los demás nutrientes en g.</Typography>
+                <Button size="small" variant="outlined" onClick={completarNutricion} disabled={saving}>Completar automáticamente</Button>
+              </Stack>
+            </Grid>
+            {[["calorias_por_100", "Calorías (kcal)"], ["proteinas_por_100", "Proteínas (g)"], ["carbohidratos_por_100", "Carbohidratos (g)"], ["grasas_por_100", "Grasas totales (g)"], ["fibra_por_100", "Fibra (g)"], ["sodio_por_100", "Sodio (mg)"]].map(([name, label]) => (
+              <Grid item xs={6} sm={4} key={name}><TextField label={label} type="number" fullWidth inputProps={{ step: "any", min: 0 }} {...register(name)} error={!!errors[name]} helperText={errors[name]?.message} /></Grid>
+            ))}
           </Grid>
           <Stack direction="row" justifyContent="flex-end" spacing={1.5} sx={{ mt: 3 }}>
             <Button onClick={() => setDialogOpen(false)} color="inherit">

@@ -3,9 +3,10 @@ import { Alert, Box, Button, MenuItem, Stack, TextField } from "@mui/material";
 import FormDialog from "../FormDialog";
 import { listarBolsillos, listarCajas, listarEntidadesFinancieras, transferirEntreCajas } from "../../api/endpoints";
 import { useNotify } from "../../hooks/useNotify";
+import { fechaHoyISO } from "../../utils/format";
 
 export default function TransferenciasCajaTab() {
-  const notify = useNotify(); const [entidades, setEntidades] = useState([]); const [cajas, setCajas] = useState([]); const [bolsillos, setBolsillos] = useState([]); const [open, setOpen] = useState(false); const [form, setForm] = useState({ entidad: "", origen: "", destino: "", bolsilloOrigen: "", bolsilloDestino: "", monto: "", fecha: new Date().toISOString().slice(0, 10) });
+  const notify = useNotify(); const [entidades, setEntidades] = useState([]); const [cajas, setCajas] = useState([]); const [bolsillos, setBolsillos] = useState([]); const [open, setOpen] = useState(false); const [form, setForm] = useState({ entidad: "", origen: "", destino: "", bolsilloOrigen: "", bolsilloDestino: "", monto: "", fecha: fechaHoyISO() });
   useEffect(() => { Promise.all([listarEntidadesFinancieras(), listarCajas()]).then(([e, c]) => { setEntidades(e); setCajas(c); }).catch(notify.error); }, [notify]);
   const cambiarEntidad = async (id) => { setForm((f) => ({ ...f, entidad: id, origen: "", destino: "" })); try { setBolsillos(await listarBolsillos(id)); } catch (e) { notify.error(e); } };
   const disponibles = cajas.filter((c) => String(c.entidad_id) === String(form.entidad) && c.cuenta_financiera_id);

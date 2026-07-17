@@ -12,6 +12,11 @@ function stockDisponible(recetaGrupoId) {
     WHERE r.grupo_id = ? AND p.anulado = 0
   `).get(recetaGrupoId).total;
 
+  const existente = db.prepare(`
+    SELECT COALESCE(SUM(cantidad), 0) AS total
+    FROM existencias_producto_terminado WHERE grupo_receta_id = ?
+  `).get(recetaGrupoId).total;
+
   const vendido = db.prepare(`
     SELECT COALESCE(SUM(vi.cantidad), 0) AS total
     FROM venta_items vi
@@ -23,7 +28,12 @@ function stockDisponible(recetaGrupoId) {
   // materia prima), restar aquí esa cantidad también:
   // const merma = db.prepare(`SELECT COALESCE(SUM(cantidad),0) AS t FROM mermas WHERE receta_grupo_id = ? AND anulado = 0`).get(recetaGrupoId).t;
 
-  return producido - vendido;
+  const mermado = db.prepare(`
+    SELECT COALESCE(SUM(cantidad), 0) AS total
+    FROM mermas_producto WHERE grupo_receta_id = ?
+  `).get(recetaGrupoId).total;
+
+  return producido + existente - vendido - mermado;
 }
 
 function productoVendible(recetaGrupoId) {

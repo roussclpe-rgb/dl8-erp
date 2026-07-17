@@ -70,6 +70,9 @@ const crearEntidadFundacion = db.transaction(({ codigo, nombre, tipo, fechaInici
 function listarEntidadesParaUsuario(usuarioId) {
   return db.prepare("SELECT e.*, a.rol_financiero FROM fin_entidades_economicas e JOIN fin_accesos_entidad a ON a.entidad_id = e.id WHERE a.usuario_id = ? AND a.estado = 'activa' AND e.estado <> 'inactiva' ORDER BY e.nombre").all(usuarioId);
 }
+function puedeCrearEntidades(usuarioId) {
+  return Boolean(db.prepare("SELECT 1 FROM fin_accesos_entidad a JOIN fin_entidades_economicas e ON e.id = a.entidad_id WHERE a.usuario_id = ? AND a.rol_financiero = 'finanzas_admin' AND a.estado = 'activa' AND e.estado = 'activa' LIMIT 1").get(usuarioId));
+}
 function listarPropietarios() {
   return db.prepare("SELECT * FROM fin_propietarios ORDER BY nombre, id").all();
 }
@@ -135,14 +138,21 @@ const actualizarCuentaFinanciera = db.transaction(({ entidadId, id, cuentaContab
   auditar({ entidadId, usuarioId, accion: "actualizar", tabla: "fin_cuentas_financieras", id, antes, despues });
   return despues;
 });
-const crearBolsillo = db.transaction(({ entidadId, codigo, nombre, tipo, permiteSaldoNegativo = false, usuarioId }) => {
+const normalizarBolsillo = ({ nombre, descripcion, prioridad = 0, saldoMinimo = 0, permiteSaldoNegativo = false }) => { const prioridadNumero = Number(prioridad), saldoMinimoNumero = Number(saldoMinimo); if (!String(nombre || "").trim()) throw fallo("nombre es obligatorio"); if (!Number.isInteger(prioridadNumero) || prioridadNumero < 0) throw fallo("prioridad inválida"); if (!Number.isFinite(saldoMinimoNumero) || saldoMinimoNumero < 0) throw fallo("saldo mínimo inválido"); return { nombre: String(nombre).trim(), descripcion: String(descripcion || "").trim() || null, prioridad: prioridadNumero, saldoMinimoMinor: Math.round(saldoMinimoNumero * 100), permiteSaldoNegativo: permiteSaldoNegativo ? 1 : 0 }; };
+const crearBolsillo = db.transaction(({ entidadId, codigo, nombre, tipo, descripcion, prioridad, saldoMinimo, permiteSaldoNegativo = false, usuarioId }) => {
   entidadId = validarId(entidadId, "entidad_id");
   entidadActiva(entidadId); if (tipo === "sin_asignar") throw fallo("El bolsillo Sin asignar solo se crea al fundar la entidad"); if (!String(codigo || "").trim() || !String(nombre || "").trim()) throw fallo("codigo y nombre son obligatorios");
   if (!TIPOS_BOLSILLO.includes(tipo)) throw fallo("tipo de bolsillo inválido");
-  const id = Number(db.prepare("INSERT INTO fin_bolsillos (entidad_id, codigo, nombre, tipo, permite_saldo_negativo, creado_por, actualizado_por) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run(entidadId, String(codigo).trim(), String(nombre).trim(), tipo, permiteSaldoNegativo ? 1 : 0, usuarioId, usuarioId).lastInsertRowid);
+  const datos = normalizarBolsillo({ nombre, descripcion, prioridad, saldoMinimo, permiteSaldoNegativo });
+  const id = Number(db.prepare("INSERT INTO fin_bolsillos (entidad_id, codigo, nombre, tipo, descripcion, prioridad, saldo_minimo_minor, permite_saldo_negativo, creado_por, actualizado_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(entidadId, String(codigo).trim(), datos.nombre, tipo, datos.descripcion, datos.prioridad, datos.saldoMinimoMinor, datos.permiteSaldoNegativo, usuarioId, usuarioId).lastInsertRowid);
   const registro = db.prepare("SELECT * FROM fin_bolsillos WHERE id = ?").get(id); auditar({ entidadId, usuarioId, accion: "crear", tabla: "fin_bolsillos", id, despues: registro }); return registro;
 });
+const actualizarBolsillo = db.transaction(({ entidadId, id, nombre, descripcion, prioridad, saldoMinimo, permiteSaldoNegativo, estado, usuarioId }) => {
+  entidadId = validarId(entidadId, "entidad_id"); id = validarId(id, "id"); const antes = db.prepare("SELECT * FROM fin_bolsillos WHERE id=? AND entidad_id=?").get(id, entidadId); if (!antes) throw fallo("Bolsillo no encontrado", 404); if (antes.tipo === "sin_asignar" && estado && estado !== "activa") throw fallo("El bolsillo Sin asignar debe permanecer activo"); if (estado && !ESTADOS.includes(estado)) throw fallo("estado financiero inválido"); const datos = normalizarBolsillo({ nombre: nombre ?? antes.nombre, descripcion: descripcion ?? antes.descripcion, prioridad: prioridad ?? antes.prioridad, saldoMinimo: saldoMinimo ?? Number(antes.saldo_minimo_minor || 0) / 100, permiteSaldoNegativo: permiteSaldoNegativo ?? Boolean(antes.permite_saldo_negativo) });
+  db.prepare("UPDATE fin_bolsillos SET nombre=?,descripcion=?,prioridad=?,saldo_minimo_minor=?,permite_saldo_negativo=?,estado=?,actualizado_por=?,actualizado_en=datetime('now') WHERE id=?").run(datos.nombre, datos.descripcion, datos.prioridad, datos.saldoMinimoMinor, datos.permiteSaldoNegativo, estado || antes.estado, usuarioId, id); const despues = db.prepare("SELECT * FROM fin_bolsillos WHERE id=?").get(id); auditar({ entidadId, usuarioId, accion: despues.estado === "activa" ? "actualizar" : "inactivar", tabla: "fin_bolsillos", id, antes, despues }); return despues;
+});
+const eliminarBolsillo = db.transaction(({ entidadId, id, usuarioId }) => { entidadId = validarId(entidadId, "entidad_id"); id = validarId(id, "id"); const bolsillo = db.prepare("SELECT * FROM fin_bolsillos WHERE id=? AND entidad_id=?").get(id, entidadId); if (!bolsillo) throw fallo("Bolsillo no encontrado", 404); if (bolsillo.tipo === "sin_asignar") throw fallo("El bolsillo Sin asignar no se puede eliminar", 409); const tuvoMovimientos = db.prepare("SELECT 1 FROM fin_asignaciones_bolsillo WHERE bolsillo_origen_id=? OR bolsillo_destino_id=? LIMIT 1").get(id, id); if (tuvoMovimientos) throw fallo("Este bolsillo tiene movimientos financieros y no puede eliminarse para preservar la integridad del historial. Si ya no lo utilizarás, puedes desactivarlo.", 409); const tieneReferencias = db.prepare("SELECT 1 FROM mpf_reglas WHERE bolsillo_id=? OR bolsillo_destino_id=? UNION SELECT 1 FROM mpf_metas_bolsillo WHERE bolsillo_id=? UNION SELECT 1 FROM mpf_metas_financieras WHERE bolsillo_id=? UNION SELECT 1 FROM mpf_politicas WHERE bolsillo_costo_id=? UNION SELECT 1 FROM mpf_detalles_aplicacion WHERE bolsillo_id=? LIMIT 1").get(id, id, id, id, id, id); if (tieneReferencias) throw fallo("Este bolsillo está usado en una configuración financiera y no se puede eliminar.", 409); db.prepare("DELETE FROM fin_bolsillos WHERE id=?").run(id); db.prepare("INSERT INTO log_auditoria(usuario_id,entidad,entidad_id,accion,datos_antes) VALUES(?, 'fin_bolsillos', ?, 'eliminar', ?)").run(usuarioId, id, JSON.stringify(bolsillo)); return { ok: true }; });
 const otorgarAcceso = db.transaction(({ entidadId, usuarioObjetivoId, rolFinanciero, usuarioId }) => {
   entidadId = validarId(entidadId, "entidad_id"); usuarioObjetivoId = validarId(usuarioObjetivoId, "usuario_id");
   entidadActiva(entidadId); if (!ROLES_FINANCIEROS.includes(rolFinanciero)) throw fallo("rol financiero inválido");
@@ -179,4 +189,4 @@ const cerrarPeriodo = db.transaction(({ entidadId, periodoId, usuarioId }) => {
   db.prepare("UPDATE fin_periodos SET estado = 'cerrado', cerrado_por = ?, cerrado_en = datetime('now'), actualizado_por = ?, actualizado_en = datetime('now') WHERE id = ?").run(usuarioId, usuarioId, periodoId);
   const despues = db.prepare("SELECT * FROM fin_periodos WHERE id = ?").get(periodoId); auditar({ entidadId, usuarioId, accion: "cerrar_periodo", tabla: "fin_periodos", id: periodoId, antes, despues }); return despues;
 });
-module.exports = { ROLES_FINANCIEROS, crearEntidadFundacion, listarEntidadesParaUsuario, listarPropietarios, exigirAcceso, crearPropietario, crearParticipacion, crearCuentaPlan, crearCuentaFinanciera, actualizarCuentaFinanciera, crearBolsillo, otorgarAcceso, cambiarEstadoCatalogo, listarPorEntidad, cerrarPeriodo };
+module.exports = { ROLES_FINANCIEROS, crearEntidadFundacion, listarEntidadesParaUsuario, puedeCrearEntidades, listarPropietarios, exigirAcceso, crearPropietario, crearParticipacion, crearCuentaPlan, crearCuentaFinanciera, actualizarCuentaFinanciera, crearBolsillo, actualizarBolsillo, eliminarBolsillo, otorgarAcceso, cambiarEstadoCatalogo, listarPorEntidad, cerrarPeriodo };

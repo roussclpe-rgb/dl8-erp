@@ -1,13 +1,7 @@
-import { Box, Typography } from "@mui/material";
+import PageState from "./PageState";
 
-export default function EmptyState({ icon, title, subtitle }) {
+export default function EmptyState({ icon, title, subtitle, description, actionLabel, onAction }) {
   return (
-    <Box sx={{ textAlign: "center", py: 6, color: "text.secondary" }}>
-      {icon}
-      <Typography variant="subtitle1" sx={{ mt: 1 }}>
-        {title}
-      </Typography>
-      {subtitle && <Typography variant="body2">{subtitle}</Typography>}
-    </Box>
+    <PageState icon={icon} title={title} description={description || subtitle} actionLabel={actionLabel} onAction={onAction} />
   );
 }

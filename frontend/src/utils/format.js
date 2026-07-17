@@ -17,6 +17,14 @@ export function formatoFecha(fechaISO) {
   return f.toLocaleDateString("es-PE", { year: "numeric", month: "short", day: "2-digit" });
 }
 
+export function fechaISO(fecha = new Date()) {
+  // `toISOString` uses UTC and can advance the calendar date in Peru.
+  const anio = fecha.getFullYear();
+  const mes = String(fecha.getMonth() + 1).padStart(2, "0");
+  const dia = String(fecha.getDate()).padStart(2, "0");
+  return `${anio}-${mes}-${dia}`;
+}
+
 export function fechaHoyISO() {
-  return new Date().toISOString().slice(0, 10);
+  return fechaISO();
 }

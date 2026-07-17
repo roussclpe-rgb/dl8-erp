@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { Alert, Box, Button, Chip, Divider, Grid, MenuItem, Paper, Skeleton, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Grid, MenuItem, Paper, Skeleton, Stack, TextField, Typography } from "@mui/material";
 import { useSearchParams } from "react-router-dom";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import PageHeader from "../components/PageHeader";
 import DataTable from "../components/DataTable";
 import EmptyState from "../components/EmptyState";
+import { useNotify } from "../hooks/useNotify";
 import { formatoFecha, formatoMoneda } from "../utils/format";
-import { flujoDineroEvento, listarEntidadesFinancieras, listarFlujosDinero } from "../api/endpoints";
+import { flujoDineroEvento, listarEntidadesFinancieras, listarFlujosDinero, revertirDistribucionPolitica, vistaPreviaReversionPolitica } from "../api/endpoints";
 
 function Paso({ titulo, detalle, importe, tone = "default" }) {
   const colores = { success: "success.light", warning: "warning.light", info: "info.light", default: "grey.100" };
@@ -16,11 +17,13 @@ function Paso({ titulo, detalle, importe, tone = "default" }) {
 const filtrosIniciales = { desde: "", hasta: "", venta_id: "", cobro_id: "" };
 
 export default function FlujoDineroPage() {
+  const notify = useNotify();
   const [searchParams] = useSearchParams(); const eventoInicial = searchParams.get("evento_id");
   const [entidades, setEntidades] = useState([]); const [entidadId, setEntidadId] = useState("");
   const [filtros, setFiltros] = useState(filtrosIniciales); const [flujos, setFlujos] = useState([]);
   const [seleccionado, setSeleccionado] = useState(null); const [flujo, setFlujo] = useState(null);
   const [cargandoEntidades, setCargandoEntidades] = useState(true); const [cargando, setCargando] = useState(false); const [cargandoDetalle, setCargandoDetalle] = useState(false); const [error, setError] = useState("");
+  const [vistaReversion, setVistaReversion] = useState(null); const [motivoReversion, setMotivoReversion] = useState(""); const [revirtiendo, setRevirtiendo] = useState(false);
 
   useEffect(() => {
     listarEntidadesFinancieras().then((rows) => { setEntidades(rows); setEntidadId(rows[0] ? String(rows[0].id) : ""); }).catch((e) => setError(e.message)).finally(() => setCargandoEntidades(false));
@@ -40,6 +43,8 @@ export default function FlujoDineroPage() {
   };
   useEffect(() => { if (entidadId && eventoInicial) verFlujo({ evento_id: eventoInicial }); }, [entidadId, eventoInicial]);
   const cambiarFiltro = (campo) => (e) => setFiltros((prev) => ({ ...prev, [campo]: e.target.value }));
+  const abrirReversion = async () => { try { setVistaReversion(await vistaPreviaReversionPolitica(entidadId, flujo.evento_id)); setMotivoReversion(""); } catch (e) { setError(e.message); } };
+  const confirmarReversion = async () => { try { setRevirtiendo(true); const resultado = await revertirDistribucionPolitica(entidadId, flujo.evento_id, motivoReversion); setVistaReversion(null); setFlujo(null); setSeleccionado(null); await cargar(); notify.success(`Distribución revertida. Se retiraron ${resultado.asignaciones_retiradas} asignaciones; el cobro quedó sin política.`); } catch (e) { const mensaje = e.response?.data?.error || e.message || "No se pudo revertir la distribución."; setError(mensaje); notify.error(mensaje); } finally { setRevirtiendo(false); } };
 
   return <Box>
     <PageHeader title="Flujo de dinero por cobro" subtitle="Recorrido auditable desde la venta hasta el dinero disponible, calculado por el motor financiero." />
@@ -75,9 +80,10 @@ export default function FlujoDineroPage() {
           {flujo.distribuciones.map((d, i) => <Paso key={`${d.regla}-${i}`} titulo={`Distribución · ${d.regla}`} detalle={d.bolsillo} importe={d.importe_minor} />)}
           <Paso titulo="Disponible final" detalle="Permanece sin asignar en la cuenta receptora" importe={flujo.disponible_final_minor} tone="success" />
         </Stack>
-        <Divider sx={{ my: 2 }} /><Typography variant="subtitle2">Política aplicada: {flujo.politica.nombre} · versión {flujo.politica.version}</Typography>
+        <Divider sx={{ my: 2 }} /><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography variant="subtitle2">Política aplicada: {flujo.politica.nombre} · versión {flujo.politica.version}</Typography><Button color="error" variant="outlined" disabled={flujo.estado === "revertido"} onClick={abrirReversion}>Revertir distribución financiera</Button></Stack>
         <Typography variant="caption" color="text.secondary">Reglas auditables: {flujo.politica.reglas.map((r) => `${r.orden}. ${r.nombre} (${r.tipo === "porcentaje" ? `${r.valor_minor / 100}%` : formatoMoneda(r.valor_minor / 100)} sobre ${r.base})`).join(" · ") || "Sin reglas"}</Typography>
       </Paper>}
     </Stack>}
+    <Dialog open={Boolean(vistaReversion)} onClose={() => !revirtiendo && setVistaReversion(null)} fullWidth maxWidth="sm"><DialogTitle>Revertir distribución financiera</DialogTitle><DialogContent><Stack spacing={1.5} sx={{ pt: 1 }}><Alert severity="warning">El cobro y su cuenta financiera no se modificarán. Solo se retirarán las asignaciones de esta política.</Alert><Typography>Cobro #{vistaReversion?.cobro.id} · Venta #{vistaReversion?.cobro.folio} · {formatoMoneda((vistaReversion?.cobro.importe_minor || 0) / 100)}</Typography><Typography>Política: {vistaReversion?.politica.nombre} · v{vistaReversion?.politica.version}</Typography><Typography fontWeight={700}>Bolsillos y montos a retirar</Typography>{vistaReversion?.distribuciones.map((d, i) => <Typography key={`${d.bolsillo_id}-${i}`}>• {d.bolsillo}: {formatoMoneda(d.importe_minor / 100)}{d.meta ? ` · Meta: ${d.meta}` : ""}</Typography>)}<Typography fontWeight={700}>Metas afectadas</Typography><Typography>{vistaReversion?.metas_afectadas.length ? vistaReversion.metas_afectadas.map((m) => m.nombre).join(", ") : "Ninguna"}</Typography><TextField required multiline minRows={2} label="Motivo de la reversión" value={motivoReversion} onChange={(e) => setMotivoReversion(e.target.value)} /></Stack></DialogContent><DialogActions><Button disabled={revirtiendo} onClick={() => setVistaReversion(null)}>Cancelar</Button><Button color="error" variant="contained" disabled={!motivoReversion.trim() || revirtiendo} onClick={confirmarReversion}>{revirtiendo ? "Revirtiendo…" : "Confirmar reversión"}</Button></DialogActions></Dialog>
   </Box>;
 }

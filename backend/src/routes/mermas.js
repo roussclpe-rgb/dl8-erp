@@ -14,8 +14,9 @@ router.get("/stock-producto/:grupoRecetaId", (req, res) => {
     FROM producciones p JOIN recetas r ON r.id = p.receta_id
     WHERE r.grupo_id = ? AND p.anulado = 0
   `).get(grupoId).total;
+  const existente = db.prepare("SELECT COALESCE(SUM(cantidad), 0) AS total FROM existencias_producto_terminado WHERE grupo_receta_id = ?").get(grupoId).total;
   const mermado = db.prepare("SELECT COALESCE(SUM(cantidad), 0) AS total FROM mermas_producto WHERE grupo_receta_id = ?").get(grupoId).total;
-  res.json({ producido, mermado, stock: producido - mermado });
+  res.json({ producido, existente, mermado, stock: producido + existente - mermado });
 });
 
 router.get("/", (req, res) => {
@@ -45,8 +46,9 @@ router.post("/", requireRole("admin", "operador"), (req, res) => {
     SELECT COALESCE(SUM(p.unidades_producidas), 0) AS total FROM producciones p JOIN recetas r ON r.id = p.receta_id
     WHERE r.grupo_id = ? AND p.anulado = 0
   `).get(grupo_receta_id).total;
+  const existente = db.prepare("SELECT COALESCE(SUM(cantidad), 0) AS total FROM existencias_producto_terminado WHERE grupo_receta_id = ?").get(grupo_receta_id).total;
   const mermado = db.prepare("SELECT COALESCE(SUM(cantidad), 0) AS total FROM mermas_producto WHERE grupo_receta_id = ?").get(grupo_receta_id).total;
-  if (cantidad > producido - mermado) {
+  if (cantidad > producido + existente - mermado) {
     return res.status(409).json({ error: "No puedes mermar más de lo que tienes en stock de producto terminado." });
   }
 

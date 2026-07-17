@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { AppBar, Avatar, Badge, Box, Breadcrumbs, Collapse, Divider, Drawer, IconButton, InputAdornment, List, ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Stack, TextField, Toolbar, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import DashboardIcon from "@mui/icons-material/DashboardOutlined";
+import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedInOutlined";
 import Inventory2Icon from "@mui/icons-material/Inventory2Outlined";
 import LocalShippingIcon from "@mui/icons-material/LocalShippingOutlined";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCartOutlined";
@@ -12,6 +13,7 @@ import PrecisionManufacturingIcon from "@mui/icons-material/PrecisionManufacturi
 import TuneIcon from "@mui/icons-material/TuneOutlined";
 import DeleteSweepIcon from "@mui/icons-material/DeleteSweepOutlined";
 import AssessmentIcon from "@mui/icons-material/AssessmentOutlined";
+import FlagIcon from "@mui/icons-material/FlagOutlined";
 import EventNoteIcon from "@mui/icons-material/EventNoteOutlined";
 import SettingsIcon from "@mui/icons-material/SettingsOutlined";
 import GroupIcon from "@mui/icons-material/GroupOutlined";
@@ -45,11 +47,12 @@ const FINANZAS = [
   { label: "Predicciones", to: "/predicciones-financieras" },
 ];
 const MENU = [
-  { section: "Principal", items: [{ label: "Dashboard", icon: <DashboardIcon />, to: "/" }] },
+  { section: "Principal", items: [{ label: "Centro de actividades", icon: <AssignmentTurnedInIcon />, to: "/centro-actividades" }, { label: "Dashboard", icon: <DashboardIcon />, to: "/dashboard" }] },
   { section: "Operación", items: [{ label: "Ingredientes", icon: <Inventory2Icon />, to: "/ingredientes" }, { label: "Proveedores", icon: <LocalShippingIcon />, to: "/proveedores" }, { label: "Compras", icon: <ShoppingCartIcon />, to: "/compras" }, { label: "Ajustes de stock", icon: <TuneIcon />, to: "/ajustes" }, { label: "Ventas", icon: <ShoppingCartIcon />, to: "/ventas" }, { label: "Caja", icon: <PointOfSaleIcon />, to: "/caja" }] },
   { section: "Producción", items: [{ label: "Recetas", icon: <MenuBookIcon />, to: "/recetas" }, { label: "Producciones", icon: <PrecisionManufacturingIcon />, to: "/producciones" }, { label: "Mermas", icon: <DeleteSweepIcon />, to: "/mermas" }] },
   { section: "Gestión", items: [{ label: "Reportes", icon: <AssessmentIcon />, to: "/reportes" }, { label: "Finanzas", icon: <AccountBalanceIcon />, to: "/finanzas", children: FINANZAS }, { label: "Periodos", icon: <EventNoteIcon />, to: "/periodos" }, { label: "Costos", icon: <SettingsIcon />, to: "/config-costos" }, { label: "Usuarios", icon: <GroupIcon />, to: "/usuarios", roles: ["admin"] }] },
 ];
+MENU[3].items.unshift({ label: "Objetivos del negocio", icon: <FlagIcon />, to: "/objetivos-negocio" });
 const paginas = MENU.flatMap((group) => group.items.flatMap((item) => item.children || [item]));
 const rutasFinanzas = new Set(FINANZAS.map((item) => item.to));
 

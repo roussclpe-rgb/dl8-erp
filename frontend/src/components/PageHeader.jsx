@@ -8,17 +8,17 @@ export default function PageHeader({ title, subtitle, actionLabel, onAction, act
       spacing={2}
       alignItems={{ sm: "center" }}
       justifyContent="space-between"
-      sx={{ mb: 3 }}
+      sx={{ mb: { xs: 2.5, sm: 3.5 } }}
     >
       <Box>
-        <Typography variant="h5">{title}</Typography>
+        <Typography variant="h4">{title}</Typography>
         {subtitle && (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, maxWidth: 720 }}>
             {subtitle}
           </Typography>
         )}
       </Box>
-      <Stack direction="row" spacing={1.5} alignItems="center">
+      <Stack direction="row" spacing={1.25} alignItems="center" flexWrap="wrap" useFlexGap>
         {extra}
         {actionLabel && (
           <Button variant="contained" startIcon={actionIcon} onClick={onAction}>

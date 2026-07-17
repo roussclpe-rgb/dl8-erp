@@ -64,6 +64,7 @@ test("detalle incluye compra, evento, pagos y aplicaciones; respeta acceso", asy
   assert.equal(response.status, 200);
   const detalle = await response.json();
   assert.equal(detalle.documento.id, documento.id);
+  assert.equal(detalle.documento.documento_cxp_id, documento.id);
   assert.equal(detalle.compra.id, detalle.documento.lote_compra_id);
   assert.equal(detalle.proveedor.id, proveedorId);
   assert.equal(detalle.evento_emision.id, detalle.documento.evento_emision_id);

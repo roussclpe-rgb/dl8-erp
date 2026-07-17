@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Box, Grid, TextField, Button, Stack, IconButton, Tooltip } from "@mui/material";
+import { Box, Grid, TextField, Button, Stack, IconButton, Tooltip, MenuItem } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import SettingsIcon from "@mui/icons-material/SettingsOutlined";
 
@@ -181,14 +181,14 @@ export default function CajasAdminTab() {
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField select label="Entidad económica" fullWidth {...register("entidad_id")} onChange={(e) => seleccionarEntidad(e.target.value)} error={!!errors.entidad_id} helperText={errors.entidad_id?.message}>
-                <option value="" />
-                {entidades.map((entidad) => <option key={entidad.id} value={entidad.id}>{entidad.nombre}</option>)}
+                <MenuItem value="">Selecciona una entidad</MenuItem>
+                {entidades.map((entidad) => <MenuItem key={entidad.id} value={entidad.id}>{entidad.nombre}</MenuItem>)}
               </TextField>
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField select label="Cuenta financiera tipo Caja" fullWidth {...register("cuenta_financiera_id")} error={!!errors.cuenta_financiera_id} helperText={errors.cuenta_financiera_id?.message}>
-                <option value="" />
-                {cuentas.map((cuenta) => <option key={cuenta.id} value={cuenta.id}>{cuenta.nombre}</option>)}
+                <MenuItem value="">Selecciona una cuenta</MenuItem>
+                {cuentas.map((cuenta) => <MenuItem key={cuenta.id} value={cuenta.id}>{cuenta.nombre}</MenuItem>)}
               </TextField>
             </Grid>
           </Grid>
@@ -208,14 +208,14 @@ export default function CajasAdminTab() {
           <Grid container spacing={2}>
             <Grid item xs={12} sm={6}>
               <TextField select label="Entidad económica" fullWidth {...configForm.register("entidad_id")} onChange={(e) => seleccionarEntidadConfiguracion(e.target.value)} error={!!configForm.formState.errors.entidad_id} helperText={configForm.formState.errors.entidad_id?.message}>
-                <option value="" />
-                {entidades.map((entidad) => <option key={entidad.id} value={entidad.id}>{entidad.nombre}</option>)}
+                <MenuItem value="">Selecciona una entidad</MenuItem>
+                {entidades.map((entidad) => <MenuItem key={entidad.id} value={entidad.id}>{entidad.nombre}</MenuItem>)}
               </TextField>
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField select label="Cuenta financiera tipo Caja" fullWidth {...configForm.register("cuenta_financiera_id")} error={!!configForm.formState.errors.cuenta_financiera_id} helperText={configForm.formState.errors.cuenta_financiera_id?.message}>
-                <option value="" />
-                {cuentas.map((cuenta) => <option key={cuenta.id} value={cuenta.id}>{cuenta.nombre}</option>)}
+                <MenuItem value="">Selecciona una cuenta</MenuItem>
+                {cuentas.map((cuenta) => <MenuItem key={cuenta.id} value={cuenta.id}>{cuenta.nombre}</MenuItem>)}
               </TextField>
             </Grid>
           </Grid>

@@ -3,9 +3,12 @@ import { Routes, Route, Navigate } from "react-router-dom";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import DashboardLayout from "./layout/DashboardLayout";
+import PageState from "./components/PageState";
+import GlobalCommandPalette from "./components/GlobalCommandPalette";
 
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
+import CentroActividadesPage from "./pages/CentroActividadesPage";
 import IngredientesPage from "./pages/IngredientesPage";
 import ProveedoresPage from "./pages/ProveedoresPage";
 import ComprasPage from "./pages/ComprasPage";
@@ -29,10 +32,12 @@ const MetasFinancierasPage = lazy(() => import("./pages/MetasFinancierasPage"));
 const AlertasFinancierasPage = lazy(() => import("./pages/AlertasFinancierasPage"));
 const EscenariosFinancierosPage = lazy(() => import("./pages/EscenariosFinancierosPage"));
 const PrediccionesFinancierasPage = lazy(() => import("./pages/PrediccionesFinancierasPage"));
-const diferida = (Pagina) => <Suspense fallback={<div role="status">Cargando módulo…</div>}><Pagina /></Suspense>;
+const ObjetivosNegocioPage = lazy(() => import("./pages/ObjetivosNegocioPage"));
+const diferida = (Pagina) => <Suspense fallback={<PageState type="loading" title="Cargando módulo" description="Estamos preparando esta sección." />}><Pagina /></Suspense>;
 
 export default function App() {
   return (
+    <>
     <Routes>
       <Route path="/login" element={<Login />} />
 
@@ -44,7 +49,9 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<Dashboard />} />
+        <Route index element={<CentroActividadesPage />} />
+        <Route path="dashboard" element={<Dashboard />} />
+        <Route path="centro-actividades" element={<CentroActividadesPage />} />
         <Route path="ingredientes" element={<IngredientesPage />} />
         <Route path="proveedores" element={<ProveedoresPage />} />
         <Route path="compras" element={<ComprasPage />} />
@@ -60,6 +67,7 @@ export default function App() {
         <Route path="alertas-financieras" element={diferida(AlertasFinancierasPage)} />
         <Route path="escenarios-financieros" element={diferida(EscenariosFinancierosPage)} />
         <Route path="predicciones-financieras" element={diferida(PrediccionesFinancierasPage)} />
+        <Route path="objetivos-negocio" element={diferida(ObjetivosNegocioPage)} />
         <Route path="ajustes" element={<AjustesPage />} />
         <Route path="recetas" element={<RecetasPage />} />
         <Route path="producciones" element={<ProduccionesPage />} />
@@ -79,5 +87,7 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    <GlobalCommandPalette />
+    </>
   );
 }

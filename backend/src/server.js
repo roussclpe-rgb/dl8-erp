@@ -29,10 +29,12 @@ app.use("/api/compras", require("./routes/compras"));
 app.use("/api/ajustes", require("./routes/ajustes"));
 app.use("/api/recetas", require("./routes/recetas"));
 app.use("/api/producciones", require("./routes/producciones"));
+app.use("/api/stock-producto", require("./routes/stockProducto"));
 app.use("/api/mermas", require("./routes/mermas"));
 app.use("/api/periodos", require("./routes/periodos"));
 app.use("/api/config-costos", require("./routes/configCostos"));
 app.use("/api/reportes", require("./routes/reportes"));
+app.use("/api/objetivos-negocio", require("./routes/objetivos-negocio"));
 
 app.use("/api/clientes", require("./routes/clientes.routes"));
 app.use("/api/productos-venta", require("./routes/productosVenta.routes"));

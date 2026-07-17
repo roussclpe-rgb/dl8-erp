@@ -11,7 +11,7 @@ import StatusChip from "../components/StatusChip";
 import { useAuth } from "../context/AuthContext";
 import { useNotify } from "../hooks/useNotify";
 import { formatoNumero, formatoFecha, fechaHoyISO } from "../utils/format";
-import { listarAjustes, crearAjuste, listarIngredientes } from "../api/endpoints";
+import { listarAjustes, crearAjuste, crearInventarioInicial, listarIngredientes } from "../api/endpoints";
 
 const TIPOS = [
   { value: "merma", label: "Merma" },
@@ -29,8 +29,9 @@ const schema = z.object({
 
 const defaultValues = { ingrediente_id: "", tipo: "merma", cantidad: "", motivo: "", fecha: fechaHoyISO() };
 
-const TONO_TIPO = { merma: "error", uso_externo: "warning", conteo_sobra: "success", sobra: "success" };
-const LABEL_TIPO = { merma: "Merma", uso_externo: "Uso externo", conteo_sobra: "Sobra por conteo" };
+const TONO_TIPO = { merma: "error", uso_externo: "warning", conteo_sobra: "success", sobra: "success", inventario_inicial: "info" };
+const LABEL_TIPO = { merma: "Merma", uso_externo: "Uso externo", conteo_sobra: "Sobra por conteo", inventario_inicial: "Inventario inicial" };
+const inventarioInicialVacio = () => ({ ingrediente_id: "", cantidad: "", costo_total: "", motivo: "Inventario existente al iniciar ERP", fecha: fechaHoyISO() });
 
 export default function AjustesPage() {
   const { hasRole } = useAuth();
@@ -40,6 +41,8 @@ export default function AjustesPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [dialogInventarioInicial, setDialogInventarioInicial] = useState(false);
+  const [inventarioInicial, setInventarioInicial] = useState(inventarioInicialVacio);
 
   const {
     register,
@@ -69,6 +72,12 @@ export default function AjustesPage() {
   const abrirNuevo = () => {
     reset(defaultValues);
     setDialogOpen(true);
+  };
+  const abrirInventarioInicial = () => { setInventarioInicial(inventarioInicialVacio()); setDialogInventarioInicial(true); };
+  const guardarInventarioInicial = async () => {
+    if (!inventarioInicial.ingrediente_id || !(Number(inventarioInicial.cantidad) > 0) || !(Number(inventarioInicial.costo_total) > 0)) return notify.error("Selecciona ingrediente e ingresa cantidad y costo total.");
+    setSaving(true);
+    try { await crearInventarioInicial({ ...inventarioInicial, ingrediente_id: Number(inventarioInicial.ingrediente_id), cantidad: Number(inventarioInicial.cantidad), costo_total: Number(inventarioInicial.costo_total) }); notify.success("Inventario inicial registrado"); setDialogInventarioInicial(false); cargar(); } catch (error) { notify.error(error); } finally { setSaving(false); }
   };
 
   const onSubmit = async (data) => {
@@ -109,6 +118,7 @@ export default function AjustesPage() {
         actionLabel={puedeEscribir ? "Nuevo ajuste" : null}
         onAction={abrirNuevo}
       />
+      {puedeEscribir && <Stack direction="row" justifyContent="flex-end" sx={{ mb: 2 }}><Button variant="outlined" onClick={abrirInventarioInicial}>Registrar inventario inicial</Button></Stack>}
 
       <DataTable columns={columns} rows={rows} loading={loading} searchPlaceholder="Buscar por ingrediente o motivo…" defaultOrderBy="fecha" defaultOrder="desc" />
 
@@ -182,6 +192,7 @@ export default function AjustesPage() {
           </Stack>
         </Box>
       </FormDialog>
+      <FormDialog open={dialogInventarioInicial} onClose={() => setDialogInventarioInicial(false)} title="Registrar inventario inicial"><Stack spacing={2}><TextField select required label="Ingrediente" value={inventarioInicial.ingrediente_id} onChange={(e) => setInventarioInicial({ ...inventarioInicial, ingrediente_id: e.target.value })}><MenuItem value="">Selecciona…</MenuItem>{ingredientes.map((ingrediente) => <MenuItem key={ingrediente.id} value={ingrediente.id}>{ingrediente.nombre} ({ingrediente.unidad_base})</MenuItem>)}</TextField><TextField required type="number" inputProps={{ min: 0.0001, step: "any" }} label="Cantidad actual (unidad base)" value={inventarioInicial.cantidad} onChange={(e) => setInventarioInicial({ ...inventarioInicial, cantidad: e.target.value })} /><TextField required type="number" inputProps={{ min: 0.01, step: "0.01" }} label="Costo total que pagaste (S/)" value={inventarioInicial.costo_total} onChange={(e) => setInventarioInicial({ ...inventarioInicial, costo_total: e.target.value })} helperText="No crea una compra, deuda ni salida de dinero." /><TextField required type="date" label="Fecha de corte" InputLabelProps={{ shrink: true }} value={inventarioInicial.fecha} onChange={(e) => setInventarioInicial({ ...inventarioInicial, fecha: e.target.value })} /><TextField required label="Motivo" value={inventarioInicial.motivo} onChange={(e) => setInventarioInicial({ ...inventarioInicial, motivo: e.target.value })} /><Stack direction="row" justifyContent="flex-end" spacing={1}><Button onClick={() => setDialogInventarioInicial(false)}>Cancelar</Button><Button variant="contained" disabled={saving} onClick={guardarInventarioInicial}>{saving ? "Guardando…" : "Registrar"}</Button></Stack></Stack></FormDialog>
     </Box>
   );
 }

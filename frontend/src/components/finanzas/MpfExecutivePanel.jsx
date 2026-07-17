@@ -8,10 +8,10 @@ import KpiCard from "../KpiCard";
 import DataTable from "../DataTable";
 import EmptyState from "../EmptyState";
 import StatusChip from "../StatusChip";
-import { formatoFecha, formatoMoneda } from "../../utils/format";
+import { fechaISO, formatoFecha, formatoMoneda } from "../../utils/format";
 import { dashboardPoliticasFinancieras, listarEntidadesFinancieras } from "../../api/endpoints";
 
-function rango(periodo) { const hasta = new Date(); const desde = new Date(hasta); if (periodo === "hoy") desde.setHours(0, 0, 0, 0); else if (periodo === "semana") desde.setDate(hasta.getDate() - 6); else desde.setDate(1); return { desde: desde.toISOString().slice(0, 10), hasta: hasta.toISOString().slice(0, 10) }; }
+function rango(periodo) { const hasta = new Date(); const desde = new Date(hasta); if (periodo === "hoy") desde.setHours(0, 0, 0, 0); else if (periodo === "semana") desde.setDate(hasta.getDate() - 6); else desde.setDate(1); return { desde: fechaISO(desde), hasta: fechaISO(hasta) }; }
 
 export default function MpfExecutivePanel() {
   const [entidades, setEntidades] = useState([]); const [entidadId, setEntidadId] = useState(""); const [periodo, setPeriodo] = useState("mes");

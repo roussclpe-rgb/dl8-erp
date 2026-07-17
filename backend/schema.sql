@@ -58,6 +58,12 @@ CREATE TABLE IF NOT EXISTS ingredientes (
   unidad_base TEXT NOT NULL,       -- g, kg, ml, l, unidad, lb, oz (ver families.js)
   stock_minimo REAL NOT NULL DEFAULT 0 CHECK (stock_minimo >= 0),
   dias_cobertura_deseados INTEGER NOT NULL DEFAULT 7 CHECK (dias_cobertura_deseados > 0), -- para sugerencias de compra
+  calorias_por_100 REAL NOT NULL DEFAULT 0 CHECK (calorias_por_100 >= 0),
+  proteinas_por_100 REAL NOT NULL DEFAULT 0 CHECK (proteinas_por_100 >= 0),
+  carbohidratos_por_100 REAL NOT NULL DEFAULT 0 CHECK (carbohidratos_por_100 >= 0),
+  grasas_por_100 REAL NOT NULL DEFAULT 0 CHECK (grasas_por_100 >= 0),
+  fibra_por_100 REAL NOT NULL DEFAULT 0 CHECK (fibra_por_100 >= 0),
+  sodio_por_100 REAL NOT NULL DEFAULT 0 CHECK (sodio_por_100 >= 0),
   activo INTEGER NOT NULL DEFAULT 1,
   creado_en TEXT NOT NULL DEFAULT (datetime('now')),
   actualizado_en TEXT NOT NULL DEFAULT (datetime('now'))
@@ -154,6 +160,21 @@ CREATE TABLE IF NOT EXISTS receta_items (
 );
 CREATE INDEX IF NOT EXISTS idx_receta_items_receta ON receta_items(receta_id);
 
+-- ---------- LISTAS DE COMPRA PARA PRODUCCIÓN ----------
+CREATE TABLE IF NOT EXISTS listas_compra_produccion (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+  creado_en TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS lista_compra_produccion_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lista_id INTEGER NOT NULL REFERENCES listas_compra_produccion(id),
+  ingrediente_id INTEGER NOT NULL REFERENCES ingredientes(id),
+  cantidad_base REAL NOT NULL CHECK (cantidad_base > 0),
+  unidad_base TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lista_compra_produccion_items_lista ON lista_compra_produccion_items(lista_id);
+
 -- ---------- PRODUCCIÓN ----------
 CREATE TABLE IF NOT EXISTS producciones (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -173,6 +194,21 @@ CREATE TABLE IF NOT EXISTS producciones (
 );
 CREATE INDEX IF NOT EXISTS idx_producciones_receta ON producciones(receta_id);
 CREATE INDEX IF NOT EXISTS idx_producciones_fecha ON producciones(fecha);
+
+-- Producto ya elaborado antes de usar el ERP. Estas entradas no son una
+-- producción y no consumen ingredientes.
+CREATE TABLE IF NOT EXISTS existencias_producto_terminado (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  grupo_receta_id INTEGER NOT NULL,
+  cantidad REAL NOT NULL CHECK (cantidad > 0),
+  costo_unidad REAL NOT NULL DEFAULT 0 CHECK (costo_unidad >= 0),
+  motivo TEXT,
+  fecha TEXT NOT NULL,
+  periodo_id INTEGER NOT NULL REFERENCES periodos(id),
+  usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+  creado_en TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_existencias_producto_grupo ON existencias_producto_terminado(grupo_receta_id);
 
 -- ---------- MERMAS DE PRODUCTO TERMINADO ----------
 CREATE TABLE IF NOT EXISTS mermas_producto (
@@ -256,7 +292,7 @@ CREATE TABLE IF NOT EXISTS pagos (
   creado_en TEXT NOT NULL DEFAULT (datetime('now'))
 );
 -- ============================================================
--- M�DULO DE CAJA
+-- MÓDULO DE CAJA
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS cajas (
@@ -308,3 +344,24 @@ CREATE INDEX IF NOT EXISTS idx_mov_caja_fecha ON movimientos_caja(fecha);
 CREATE INDEX IF NOT EXISTS idx_mov_caja_referencia
 ON movimientos_caja(referencia_tipo, referencia_id);
 
+-- ============================================================
+-- OBJETIVOS DEL NEGOCIO (módulo comercial, independiente de Finanzas)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS objetivos_negocio (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,
+  tipo TEXT NOT NULL CHECK (tipo IN ('facturacion', 'unidades_vendidas', 'utilidad_bruta')),
+  valor_objetivo REAL NOT NULL CHECK (valor_objetivo > 0),
+  fecha_inicio TEXT NOT NULL,
+  fecha_fin TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo', 'cumplido', 'vencido', 'cancelado')),
+  observaciones TEXT NOT NULL DEFAULT '',
+  entidad_id INTEGER REFERENCES fin_entidades_economicas(id),
+  producto_id INTEGER,
+  vendedor_id INTEGER REFERENCES usuarios(id),
+  canal_venta TEXT,
+  usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+  creado_en TEXT NOT NULL DEFAULT (datetime('now')),
+  actualizado_en TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_objetivos_negocio_fechas ON objetivos_negocio(fecha_inicio, fecha_fin);

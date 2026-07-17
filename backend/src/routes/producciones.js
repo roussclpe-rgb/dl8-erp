@@ -4,6 +4,7 @@ const { requireAuth, requireRole } = require("../middleware/auth");
 const { exigirPeriodoAbierto } = require("../services/periodos");
 const { revertir } = require("../services/fifo");
 const { calcularProduccion, normalizarCantidadProduccion } = require("../services/producciones");
+const { analizarFactibilidadProduccion, crearListaCompraFaltantes } = require("../services/factibilidad-produccion");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -16,6 +17,15 @@ router.get("/", (req, res) => {
     ORDER BY p.fecha DESC, p.id DESC
   `).all();
   res.json(producciones);
+});
+
+router.get("/factibilidad", (req, res) => {
+  res.json(analizarFactibilidadProduccion());
+});
+
+router.post("/faltantes/lista-compra", requireRole("admin", "operador"), (req, res) => {
+  try { res.status(201).json(crearListaCompraFaltantes({ usuarioId: req.usuario.id })); }
+  catch (error) { res.status(error.status || 400).json({ error: error.message }); }
 });
 
 router.post("/", requireRole("admin", "operador"), (req, res) => {

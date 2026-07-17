@@ -106,4 +106,16 @@ const agregarPorConteo = db.transaction(({ ingredienteId, cantidadBase, motivo, 
   return info.lastInsertRowid;
 });
 
-module.exports = { lotesDisponibles, stockIngrediente, costoPromedioActual, consumir, revertir, agregarPorConteo };
+const agregarInventarioInicial = db.transaction(({ ingredienteId, cantidadBase, costoTotal, motivo, usuarioId, fecha, periodoId }) => {
+  const costoUnidad = Number(costoTotal) / Number(cantidadBase);
+  const info = db.prepare(`INSERT INTO lotes_compra
+    (ingrediente_id, proveedor_id, periodo_id, fecha_compra, fecha_vencimiento, presentacion, cantidad_comprada, unidad_compra, contenido_por_presentacion, cantidad_total_base, cantidad_restante, costo_total, costo_unidad_base, usuario_id)
+    VALUES (?, NULL, ?, ?, NULL, ?, ?, 'unidad_base', 1, ?, ?, ?, ?, ?)`)
+    .run(ingredienteId, periodoId, fecha, `Inventario inicial — ${motivo}`, cantidadBase, cantidadBase, cantidadBase, costoTotal, costoUnidad, usuarioId);
+  db.prepare(`INSERT INTO movimientos_inventario(ingrediente_id,tipo,cantidad_base,costo_unidad_base,referencia_tipo,referencia_id,motivo,usuario_id,fecha,periodo_id)
+    VALUES(?,'inventario_inicial',?,?,'lote_compra',?,?,?, ?,?)`)
+    .run(ingredienteId, cantidadBase, costoUnidad, info.lastInsertRowid, motivo, usuarioId, fecha, periodoId);
+  return info.lastInsertRowid;
+});
+
+module.exports = { lotesDisponibles, stockIngrediente, costoPromedioActual, consumir, revertir, agregarPorConteo, agregarInventarioInicial };

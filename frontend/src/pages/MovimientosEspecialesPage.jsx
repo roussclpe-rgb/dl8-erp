@@ -3,8 +3,9 @@ import { Box, Button, Grid, MenuItem, Paper, Stack, TextField, Typography } from
 import PageHeader from "../components/PageHeader";
 import { useNotify } from "../hooks/useNotify";
 import { listarBolsillos, listarCuentasFinancieras, listarEntidadesFinancieras, registrarAporteSocio, registrarPrestamoRecibido } from "../api/endpoints";
+import { fechaHoyISO } from "../utils/format";
 
-const hoy = () => new Date().toISOString().slice(0, 10);
+const hoy = fechaHoyISO;
 const clave = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 
 export default function MovimientosEspecialesPage() {

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Box, Grid, TextField, MenuItem, Button, Stack, IconButton, Tooltip, Tab, Tabs, Chip } from "@mui/material";
+import { Badge, Box, Grid, TextField, MenuItem, Button, Stack, IconButton, Tooltip, Tab, Tabs, Chip } from "@mui/material";
 import EditIcon from "@mui/icons-material/EditOutlined";
 import CancelIcon from "@mui/icons-material/CancelOutlined";
 
@@ -15,7 +15,7 @@ import ComprasHistoricasTab from "../components/compras/ComprasHistoricasTab";
 import { useAuth } from "../context/AuthContext";
 import { useNotify } from "../hooks/useNotify";
 import { formatoNumero, formatoFecha, fechaHoyISO } from "../utils/format";
-import { anularCompra, listarCompras, crearCompra, editarCompra, unidadesCompatibles, listarIngredientes, listarProveedores, listarEntidadesFinancieras } from "../api/endpoints";
+import { anularCompra, listarCompras, crearCompra, editarCompra, unidadesCompatibles, listarIngredientes, listarProveedores, listarEntidadesFinancieras, listarDocumentosCxP } from "../api/endpoints";
 
 const schemaComun = z.object({
   entidad_id: z.union([z.coerce.number().positive(), z.literal("")]).optional(),
@@ -63,6 +63,7 @@ export default function ComprasPage() {
   const [anulando, setAnulando] = useState(null);
   const [anulandoEnvio, setAnulandoEnvio] = useState(false);
   const [historicosVersion, setHistoricosVersion] = useState(0);
+  const [cuentasPorPagar, setCuentasPorPagar] = useState(0);
   const idempotencyKeyRef = useRef(null);
   const anulacionKeyRef = useRef(null);
 
@@ -81,10 +82,12 @@ export default function ComprasPage() {
     setLoading(true);
     try {
       const [compras, ing, prov, ent] = await Promise.all([listarCompras(), listarIngredientes(), listarProveedores(), listarEntidadesFinancieras()]);
+      const documentosPorEntidad = await Promise.all(ent.map((entidad) => listarDocumentosCxP({ entidad_id: entidad.id })));
       setRows(compras);
       setIngredientes(ing);
       setProveedores(prov);
       setEntidades(ent);
+      setCuentasPorPagar(documentosPorEntidad.flat().filter((documento) => documento.saldo_minor > 0 && ["abierta", "parcial"].includes(documento.estado)).length);
     } catch (e) {
       notify.error(e);
     } finally {
@@ -219,10 +222,10 @@ export default function ComprasPage() {
       <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ mb: 2 }}>
         <Tab label="Compras" />
         <Tab label="Históricas" />
-        <Tab label="Por pagar" />
+        <Tab label={<Badge badgeContent={cuentasPorPagar} color="error" invisible={cuentasPorPagar === 0} sx={{ "& .MuiBadge-badge": { right: -12, top: 2 } }}><Box sx={{ pr: 1 }}>Por pagar</Box></Badge>} />
       </Tabs>
 
-      {tab === 2 ? <PorPagarTab /> : tab === 1 ? <ComprasHistoricasTab proveedores={proveedores} ingredientes={ingredientes} onEdit={abrirEditar} refreshKey={historicosVersion} /> : <>
+      {tab === 2 ? <PorPagarTab onCxPChange={cargar} /> : tab === 1 ? <ComprasHistoricasTab proveedores={proveedores} ingredientes={ingredientes} onEdit={abrirEditar} refreshKey={historicosVersion} /> : <>
       <DataTable columns={columns} rows={rows} loading={loading} searchPlaceholder="Buscar por ingrediente o proveedor…" defaultOrderBy="fecha_compra" defaultOrder="desc" />
 
       <FormDialog open={dialogOpen} onClose={() => setDialogOpen(false)} title={editing ? "Editar compra" : "Nueva compra"} maxWidth="md">

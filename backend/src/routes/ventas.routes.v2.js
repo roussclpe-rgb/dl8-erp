@@ -5,7 +5,7 @@ const { requireAuth, requireRole } = require("../middleware/auth");
 const { exigirPeriodoAbierto } = require("../services/periodos");
 const { calcularVenta } = require("../services/ventas");
 const caja = require("../services/caja");
-const { emitirVenta, buscarVentaIdempotente } = require("../services/finanzas/ventas");
+const { emitirVenta, buscarVentaIdempotente, corregirFechaVenta } = require("../services/finanzas/ventas");
 const { registrarCobrosVenta, buscarPagoIdempotente, saldoDocumento, anularVentaSinCobros } = require("../services/finanzas/cobros-cxc");
 const { hashCanonico } = require("../services/finanzas/idempotencia");
 const catalogos = require("../services/finanzas/catalogos");
@@ -18,7 +18,7 @@ function saldoVenta(ventaId) {
   const documento = db.prepare("SELECT id,entidad_id,estado,importe_original_minor FROM fin_documentos_cxc WHERE venta_id=?").get(ventaId);
   if (documento) {
     const saldo = saldoDocumento(documento.id);
-    return { saldo: saldo.saldoMinor / 100, estado_cxc: documento.estado, historico: false, documento_cxc_id: documento.id, entidad_id: documento.entidad_id };
+    return { saldo: saldo.saldoMinor / 100, monto_original: documento.importe_original_minor / 100, estado_cxc: documento.estado, historico: false, documento_cxc_id: documento.id, entidad_id: documento.entidad_id };
   }
   const pagado = db
     .prepare("SELECT COALESCE(SUM(monto), 0) AS total FROM pagos WHERE venta_id = ?")
@@ -59,12 +59,12 @@ router.get("/", (req, res) => {
   const ventas = entidadId ? db.prepare(`
     SELECT v.*, c.nombre AS cliente_nombre
     FROM ventas v JOIN clientes c ON c.id = v.cliente_id JOIN fin_documentos_cxc d ON d.venta_id=v.id
-    WHERE v.anulado = 0 AND d.entidad_id=?
+    WHERE v.anulado = 0 AND COALESCE(v.es_saldo_inicial,0)=0 AND d.entidad_id=?
     ORDER BY v.fecha DESC, v.id DESC
   `).all(entidadId) : db.prepare(`
     SELECT v.*, c.nombre AS cliente_nombre
     FROM ventas v JOIN clientes c ON c.id = v.cliente_id
-    WHERE v.anulado = 0
+    WHERE v.anulado = 0 AND COALESCE(v.es_saldo_inicial,0)=0
     ORDER BY v.fecha DESC, v.id DESC
   `).all();
   res.json(ventas.map((v) => ({ ...v, ...saldoVenta(v.id) })));
@@ -99,7 +99,7 @@ router.get("/:id", (req, res) => {
 
 // body: { cliente_id, fecha, items: [{ receta_grupo_id, cantidad }], pagos?: [{ monto, metodoPago }] }
 router.post("/", requireRole("admin", "operador", "vendedor"), (req, res) => {
-  const { cliente_id, entidad_id, fecha, items, pagos = [], turno_caja_id, descuento_tipo, descuento_valor } = req.body;
+  const { cliente_id, entidad_id, fecha, items, pagos = [], vueltos = [], turno_caja_id, descuento_tipo, descuento_valor } = req.body;
   const claveIdempotencia = req.get("Idempotency-Key")?.trim();
 
   try {
@@ -148,7 +148,7 @@ for (const it of items) {
       items, descuentoTipo: descuento_tipo, descuentoValor: descuento_valor, pagos, turnoCajaId: turno_caja_id,
       claveIdempotencia, payloadIdempotencia: req.body, calcularVenta,
       registrarPagos: ({ ventaId, pagos: pagosVenta, turnoCajaId }) => pagosVenta.length
-        ? registrarCobrosVenta({ ventaId, pagos: pagosVenta, turnoCajaId, usuarioId: req.usuario.id, fecha })
+        ? registrarCobrosVenta({ ventaId, pagos: pagosVenta, vueltos, turnoCajaId, usuarioId: req.usuario.id, fecha })
         : null,
     });
   } catch (e) {
@@ -156,6 +156,24 @@ for (const it of items) {
   }
 
   res.status(201).json(resultado);
+});
+
+// Corrige exclusivamente la fecha, dejando una reversión y una nueva emisión
+// en la auditoría. Los cobros confirmados conservan su fecha real.
+router.put("/:id/fecha", requireRole("admin"), (req, res) => {
+  const { fecha } = req.body || {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha || "")) return res.status(400).json({ error: "Indica una fecha válida" });
+  const venta = db.prepare("SELECT fecha FROM ventas WHERE id = ? AND anulado = 0").get(req.params.id);
+  if (!venta) return res.status(404).json({ error: "Venta no encontrada" });
+  try {
+    // Los dos períodos se comprueban antes de iniciar la corrección financiera.
+    exigirPeriodoAbierto(venta.fecha);
+    const periodoNuevo = exigirPeriodoAbierto(fecha);
+    const clave = req.get("Idempotency-Key")?.trim() || `corregir-fecha-venta-${req.params.id}-${fecha}`;
+    return res.json(corregirFechaVenta({ ventaId: Number(req.params.id), fecha, periodoId: periodoNuevo.id, usuarioId: req.usuario.id, clave }));
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message || "No se pudo corregir la fecha" });
+  }
 });
 
 // Anular en vez de borrar, igual que producciones. El stock se "devuelve"
@@ -194,11 +212,11 @@ router.post("/:id/anular", requireRole("admin"), (req, res) => {
 // Cobrar saldo pendiente de una venta ya existente.
 // body: { pagos: [{ monto, metodoPago }], turno_caja_id? }
 router.post("/:id/pagos", requireRole("admin", "operador", "vendedor"), (req, res) => {
-  const { pagos = [], turno_caja_id } = req.body;
+  const { pagos = [], vueltos = [], turno_caja_id } = req.body;
   const hoy = new Date().toISOString().slice(0, 10);
   const claveIdempotencia = req.get("Idempotency-Key")?.trim();
   try {
-    const previo = buscarPagoIdempotente({ usuarioId: req.usuario.id, clave: claveIdempotencia, ventaId: req.params.id, pagos, turnoCajaId: turno_caja_id });
+    const previo = buscarPagoIdempotente({ usuarioId: req.usuario.id, clave: claveIdempotencia, ventaId: req.params.id, pagos, vueltos, turnoCajaId: turno_caja_id });
     if (previo) return res.json(previo);
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
@@ -210,7 +228,7 @@ router.post("/:id/pagos", requireRole("admin", "operador", "vendedor"), (req, re
 
   if (db.prepare("SELECT 1 FROM fin_documentos_cxc WHERE venta_id=?").get(venta.id)) {
     try {
-      return res.json(registrarCobrosVenta({ ventaId: venta.id, pagos, turnoCajaId: turno_caja_id, usuarioId: req.usuario.id, fecha: hoy, claveIdempotencia }));
+      return res.json(registrarCobrosVenta({ ventaId: venta.id, pagos, vueltos, turnoCajaId: turno_caja_id, usuarioId: req.usuario.id, fecha: hoy, claveIdempotencia }));
     } catch (e) {
       return res.status(e.status || 400).json({ error: e.status ? e.message : "No se pudo registrar el cobro" });
     }
