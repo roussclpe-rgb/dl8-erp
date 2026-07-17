@@ -9,3 +9,5 @@ data.sqlite-wal
 # Archivos temporales de pruebas
 backend/data_backup_pre_caja.sqlite
 backend/verificar-tablas.js
+# Respaldos locales SQLite
+backend/backups/
